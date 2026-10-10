@@ -1,0 +1,56 @@
+﻿// Rift Builder: a server-backed Solfray playable on one Cloudflare Worker.
+//
+// Everything the game needs lives in this one Worker:
+//   * static assets (the Three.js page, the Solfray manifest) from ./public
+//   * the HTTP API (/api/*) for maps and identity
+//   * Google sign-in (/auth/*) for people who open the page on its own
+//   * one Durable Object class (RoomDO) that relays player poses when the
+//     page is NOT running inside Solfray (inside Solfray, Solfray relays)
+//   * one D1 database for users and maps
+//
+// "Deploy to Cloudflare" reads this file, provisions the D1 database and the
+// Durable Object, and asks for the secrets listed in README.md.
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "rift-builder",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-09-01",
+  "observability": { "enabled": true },
+
+  // Static files. run_worker_first = true means every request reaches
+  // src/index.ts first, which then hands non-API paths to env.ASSETS and adds
+  // the headers the Solfray guide asks for (frame-ancestors, no-cache HTML).
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS",
+    "not_found_handling": "none",
+    "run_worker_first": true
+  },
+
+  // Plain (non-secret) configuration. Secrets go through `wrangler secret put`
+  // or .dev.vars locally; see .dev.vars.example.
+  "vars": {
+    // Where the Solfray SDK and the playable-token JWK set come from. Only
+    // change this if you are pointing at a Solfray-compatible host.
+    "SOLFRAY_ORIGIN": "https://solfray.com",
+    // OAuth 2.0 client id from Google Cloud Console (Web application type).
+    // Leave empty to run without Google sign-in: people can still play as
+    // guests, and Solfray users still sign in through their playable token.
+    "GOOGLE_CLIENT_ID": ""
+  },
+
+  // Maps and users. With no database_id, `wrangler deploy` provisions one.
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "rift-builder",
+      "migrations_dir": "migrations"
+    }
+  ],
+
+  // One room per map session for standalone (non-Solfray) multiplayer.
+  "durable_objects": {
+    "bindings": [{ "name": "ROOMS", "class_name": "RoomDO" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["RoomDO"] }]
+}

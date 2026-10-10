@@ -1,0 +1,11 @@
+{
+  "solfray_playable": 1,
+  "name": "Rift Builder",
+  "description": "Build first-person rift puzzles with friends and play them together. Place a pair of linked rifts on light panels, step through, reach the exit pad. 1 to 50 players; maps are saved to this server under your Solfray or Google account.",
+  "aspect": "16:9",
+  "start_url": "/",
+  "players": { "min": 1, "max": 50 },
+  "version": "1.0.0",
+  "author": "Rift Builder contributors (open source, MIT)",
+  "tags": ["puzzle", "3d", "builder", "co-op", "first-person"]
+}

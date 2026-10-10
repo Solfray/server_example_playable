@@ -1,0 +1,23 @@
+{
+  "name": "rift-builder",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Open-source example of a server-backed Solfray playable: a first-person portal-puzzle builder for 1 to 50 players, hosted on a Cloudflare Worker.",
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "migrate:local": "wrangler d1 migrations apply DB --local",
+    "migrate": "wrangler d1 migrations apply DB --remote",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "cf-typegen": "wrangler types"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20261010.1",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.3",
+    "wrangler": "^4.149.0"
+  }
+}

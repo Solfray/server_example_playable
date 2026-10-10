@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Rift Builder</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="description" content="Build first-person rift puzzles with friends. An open-source, server-backed Solfray playable.">
+  <link rel="stylesheet" href="/css/style.css">
+
+  <!-- SOLFRAY TIE-IN: the playable SDK, served by solfray.com (never vendor it;
+       Solfray updates it in place and the host checks the protocol version).
+       It defines window.Solfray with connect(), mock(), colorOf(). If it fails
+       to load the page still runs as a plain website (app.js has a stub). -->
+  <script src="https://solfray.com/solfray-playable.js" data-contextmenu="allow"
+          onerror="console.warn('[rift-builder] Solfray SDK did not load; running standalone')"></script>
+
+  <!-- Three.js from a CDN. Pinned; bump deliberately. -->
+  <script type="importmap">
+    { "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.186.1/build/three.module.js" } }
+  </script>
+</head>
+<body>
+  <canvas id="game"></canvas>
+
+  <div id="hud">
+    <div class="bar top">
+      <span class="brand">Rift Builder</span>
+      <span id="mapname" class="pill">no map</span>
+      <span class="grow"></span>
+      <span id="players" class="pill">1 player</span>
+      <span id="where" class="pill muted">connecting…</span>
+      <span id="who" class="pill who">…</span>
+      <button id="btn-maps" title="M">Maps</button>
+      <button id="btn-build" title="B" disabled>Build (B)</button>
+      <button id="btn-save" disabled>Save</button>
+      <button id="btn-result" hidden>Copy result</button>
+      <button id="btn-help" title="H">?</button>
+    </div>
+    <div id="crosshair"></div>
+    <div id="palette" hidden></div>
+    <div id="hint" class="bar bottom"></div>
+    <div id="toasts"></div>
+  </div>
+
+  <div id="overlay" hidden>
+    <div id="overlay-body" class="card"></div>
+  </div>
+
+  <script type="module" src="/js/app.js"></script>
+</body>
+</html>

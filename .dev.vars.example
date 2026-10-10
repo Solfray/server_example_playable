@@ -1,0 +1,10 @@
+# Copy to .dev.vars for `wrangler dev`. Never commit .dev.vars.
+#
+# Signs the standalone session cookie (Google sign-in). Any long random
+# string: `openssl rand -hex 32`.
+SESSION_SECRET=change-me-to-64-random-hex-chars
+#
+# From Google Cloud Console > APIs & Services > Credentials > OAuth client
+# (Web application). Add http://localhost:8787/auth/google/callback and
+# https://<your-worker>/auth/google/callback as authorised redirect URIs.
+GOOGLE_CLIENT_SECRET=
