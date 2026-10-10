@@ -29,7 +29,7 @@ git push
 if errorlevel 1 goto :fail
 
 echo === Deploy to Cloudflare ===
-call npm run deploy
+call npm.cmd run deploy
 if errorlevel 1 goto :fail
 
 echo === Done ===
