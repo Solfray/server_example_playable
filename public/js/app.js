@@ -23,7 +23,7 @@ import { Api } from "./api.js";
 // SOLFRAY TIE-IN (guide 7c): the same string as "version" in
 // /solfray-playable.json. Solfray compares the two and tells a player on a
 // stale build to reload. Bump both on every deploy.
-const VERSION = "1.1.0";
+const VERSION = "1.2.0";
 // Schema of the shared room state. Bump when its shape changes; a room whose
 // state carries an older schema starts fresh (guide 7c, step 3).
 const STATE_SCHEMA = 1;
@@ -412,6 +412,7 @@ function setupInput() {
   document.addEventListener("pointerlockchange", () => {
     app.locked = document.pointerLockElement === canvas;
     app.player.clearKeys();
+    app.placeHeld = false;
     document.body.classList.toggle("locked", app.locked);
   });
   document.addEventListener("mousemove", (e) => {
@@ -423,7 +424,13 @@ function setupInput() {
     if (app.editor.active) {
       // Creative-mode mouse: left breaks, right places, middle picks.
       if (e.button === 0 && app.editor.breakBlock()) app.dirty = true;
-      if (e.button === 2 && app.editor.placeBlock()) app.dirty = true;
+      if (e.button === 2) {
+        // Holding right click keeps placing, as in creative mode: walk
+        // backward along an edge to lay a line of blocks.
+        app.placeHeld = true;
+        app.placeTimer = PLACE_REPEAT;
+        if (app.editor.placeBlock()) app.dirty = true;
+      }
       if (e.button === 1) {
         e.preventDefault();
         app.editor.pickBlock();
@@ -434,6 +441,9 @@ function setupInput() {
       if (e.button === 0) shoot("a");
       if (e.button === 2) shoot("b");
     }
+  });
+  document.addEventListener("mouseup", (e) => {
+    if (e.button === 2) app.placeHeld = false;
   });
   canvas.addEventListener("auxclick", (e) => e.preventDefault());
   canvas.addEventListener("wheel", (e) => {
@@ -463,6 +473,12 @@ function setupInput() {
         e.preventDefault();
         toggleBuild();
         break;
+      case "KeyF":
+        if (app.editor.active) {
+          app.editor.cycleShape(1);
+          hotbar();
+        }
+        break;
       case "KeyM":
         openBrowser();
         break;
@@ -487,7 +503,10 @@ function setupInput() {
     if (e.code === "Space") e.preventDefault();
   });
   document.addEventListener("keyup", (e) => app.player.keys.delete(e.code));
-  window.addEventListener("blur", () => app.player.clearKeys());
+  window.addEventListener("blur", () => {
+    app.player.clearKeys();
+    app.placeHeld = false;
+  });
 }
 
 function shoot(which) {
@@ -525,6 +544,7 @@ function toggleBuild() {
 // Game loop
 
 const tmpCenter = new THREE.Vector3(), tmpPrev = new THREE.Vector3();
+const PLACE_REPEAT = 0.2; // seconds between placements while right click is held
 
 function frame(t) {
   requestAnimationFrame(frame);
@@ -556,7 +576,20 @@ function simulate(dt) {
     world.passable = app.editor.active ? null : app.rifts.passable(tmpPrev);
     player.update(dt, world);
     world.passable = null;
-    if (!app.editor.active) {
+    if (app.editor.active) {
+      if (app.editor.rescueIfFallen()) toast("Fell off the build: back on the nearest block.");
+      if (app.placeHeld && app.locked) {
+        app.placeTimer -= dt;
+        if (app.placeTimer <= 0) {
+          app.placeTimer += PLACE_REPEAT;
+          app.editor.update(); // aim from where the step just moved us
+          if (app.editor.placeBlock()) {
+            app.dirty = true;
+            hud();
+          }
+        }
+      }
+    } else {
       player.center(tmpCenter);
       const x = app.rifts.crossing(tmpPrev, tmpCenter);
       if (x) teleport(x);
@@ -724,7 +757,7 @@ function hud() {
   $("btn-save").textContent = app.map && app.map.id && app.map.id !== "starter" && app.map.mine ? "Save" : "Save as…";
   $("hotbar-wrap").hidden = !(app.editor && app.editor.active);
   $("hint").textContent = app.editor && app.editor.active
-    ? "WASD · double-tap Space to fly (Space up, Shift down) · Ctrl fast · RMB place · LMB break · MMB pick · wheel/1–9 block · 0 spawn tool · B play"
+    ? "WASD · double-tap Space to fly (Space up, Shift down) · Ctrl fast · RMB place · LMB break · MMB pick · hold RMB to keep placing · F shape · wheel/1–9 block · 0 spawn tool · B play"
     : "WASD · Space jump · Shift sneak · Ctrl sprint · LMB blue rift · RMB orange rift · X clear rifts · R restart · B build · M maps";
 }
 
@@ -858,7 +891,7 @@ function openHelp() {
   showOverlay(`<h2>Rift Builder</h2>
     <p>Place two linked rifts on <b>light panels</b> (left click blue, right click orange), walk through one and come out of the other with your speed intact. Reach the green exit pad. Dark plates and glass refuse rifts; acid sends you back; a floor button held down by any player opens every door, so bring friends.</p>
     <p><b>Play</b>: WASD, Space jumps, Shift sneaks (slower, never off an edge), Ctrl sprints. Left click fires the blue rift, right click the orange one. Stairs are slopes: a rift aimed at a two-step run sits on the slope, and a rift aimed at a floor or wall needs two panels of room.</p>
-    <p><b>Build</b> (B): creative controls. Double-tap Space to fly (Space up, Shift down, Ctrl fast). Right click places the selected block against the face you look at, left click breaks, middle click picks. Keys 1–9 and the wheel choose a block from the hotbar; 0 is the spawn tool (right click a block to spawn on it). Stairs face the way you look; placed under a block they hang upside down. Save as… stores the map on this server under your account; tick Public to list it.</p>
+    <p><b>Build</b> (B): creative controls. Double-tap Space to fly (Space up, Shift down, Ctrl fast). Right click places the selected block against the face you look at (the ghost shows where), left click breaks, middle click picks. Hold right click to keep placing: walk backward off an edge while sneaking to lay a bridge. F cycles the shape: single block, 3×3 floor, 3×3 north–south wall, 3×3 east–west wall, 6-tall pillar (stairs always place singly). Fall far below the build and you land on the nearest block. Keys 1–9 and the wheel choose a block from the hotbar; 0 is the spawn tool (right click a block to spawn on it). Stairs face the way you look; placed under a block they hang upside down. Save as… stores the map on this server under your account; tick Public to list it.</p>
     <h3>Who you are</h3>
     <p>${identityNote()}</p>
     <h3>Multiplayer</h3>
