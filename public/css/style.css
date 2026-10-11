@@ -34,10 +34,15 @@ button.danger { border-color: var(--danger); color: var(--danger); }
 #crosshair::after { content: ""; position: absolute; left: 50%; top: 50%; width: 2px; height: 2px; margin: -1px; background: #fff; }
 #crosshair.no { border-color: var(--danger); }
 
-#palette { position: absolute; left: 50%; bottom: 46px; transform: translateX(-50%); display: flex; gap: 6px; pointer-events: auto; background: var(--panel); padding: 6px; border-radius: var(--radius); border: 1px solid rgba(255,255,255,.08); max-width: 96vw; overflow-x: auto; }
-#palette .pal { display: flex; align-items: center; gap: 6px; padding: 5px 9px; font-size: 12px; white-space: nowrap; }
-#palette .pal.sel { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
-#palette .sw { width: 14px; height: 14px; border-radius: 3px; border: 1px solid rgba(0,0,0,.5); display: inline-block; }
+#hotbar-wrap { position: absolute; left: 50%; bottom: 44px; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 6px; pointer-events: auto; }
+#hotbar-label { font-size: 13px; font-weight: 600; text-shadow: 0 1px 2px #000; min-height: 18px; }
+#hotbar { display: flex; gap: 3px; padding: 3px; background: rgba(0,0,0,.5); border: 2px solid rgba(255,255,255,.25); border-radius: 4px; }
+#hotbar .slot { position: relative; width: 48px; height: 48px; padding: 0; border-radius: 3px; border: 2px solid transparent; background: rgba(255,255,255,.06); display: flex; align-items: center; justify-content: center; }
+#hotbar .slot.sel { border-color: #fff; background: rgba(255,255,255,.18); }
+#hotbar .sw { width: 26px; height: 26px; border: 1px solid rgba(0,0,0,.6); box-shadow: inset -4px -4px rgba(0,0,0,.25), inset 3px 3px rgba(255,255,255,.18); display: block; }
+#hotbar .sw.stair { clip-path: polygon(0 100%, 0 50%, 50% 50%, 50% 0, 100% 0, 100% 100%); }
+#hotbar .sw.spawn { background: #ffe066; clip-path: polygon(50% 0, 100% 100%, 0 100%); }
+#hotbar .key { position: absolute; left: 3px; top: 1px; font-size: 10px; color: #ddd; text-shadow: 0 1px 1px #000; }
 
 #toasts { position: absolute; right: 12px; bottom: 56px; display: flex; flex-direction: column; gap: 6px; align-items: flex-end; max-width: 60vw; }
 .toast { background: var(--panel); border: 1px solid rgba(255,255,255,.12); border-left: 3px solid var(--accent); padding: 8px 12px; border-radius: 8px; animation: in .2s ease-out; transition: opacity .4s, transform .4s; }

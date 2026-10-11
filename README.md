@@ -4,8 +4,9 @@ A first-person puzzle builder for 1 to 50 players, and an open-source example of
 **server-backed [Solfray](https://solfray.com) playable** running on one Cloudflare Worker.
 
 Place two linked rifts on light panels, walk into one and come out of the other with your
-momentum intact, reach the exit pad. Build your own maps in the browser and save them to
-the server; play them with friends inside Solfray or on the standalone site.
+momentum intact, reach the exit pad. Build your own maps block by block in the browser and
+save them to the server; play them with friends inside Solfray or on the standalone site.
+The controls are the ones every block-builder player already knows.
 
 [![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/Solfray/server_example_playable)
 
@@ -43,6 +44,8 @@ comment. Grep for it.
 | `/solfray-playable.json` | `public/`, `src/index.ts` | The manifest (name, players 1–50, version), served at every path Solfray tries |
 | `frame-ancestors` | `src/index.ts` | Only solfray.com (and uz.games) may frame the page, plus the page itself |
 | `Solfray.mock({ players })` | `?mock=2` | A fake hosted room for local development |
+| `skins` / `p.skin` (guide 6b) | `public/js/model.js`, `avatars.js` | **Backburner.** The character already wraps a standard 64x64 skin image; declaring a `skin` slot in the manifest is all that is left |
+| `p.nfts` (guide 6c) | `public/js/model.js` (comment) | **Backburner.** NFT-driven skins would go through the same `skins.approved` list |
 
 When the page is **not** inside Solfray, `public/js/net.js` (`RoomNet`) talks to our own
 Durable Object (`src/room.ts`) over a WebSocket with the same semantics, so the game code
@@ -66,6 +69,51 @@ npm run dev                        # http://localhost:8787
 * `npm run typecheck` typechecks the Worker.
 
 Saving on the standalone site needs Google sign-in (below). Playing never needs an account.
+
+### Controls
+
+**Playing** (survival-style): `WASD` move, `Space` jump, `Shift` sneak (slower, never off an
+edge), `Ctrl` sprint, mouse look. Left click fires the blue rift, right click the orange
+one, `X` clears your rifts, `R` restarts, `B` enters build mode on your own maps, `M` opens
+the map browser.
+
+**Building** (creative-style): double-tap `Space` to fly (`Space` up, `Shift` down, `Ctrl`
+fast). Right click places the selected block against the face you look at, left click
+breaks, middle click picks the block you look at. `1`–`9` and the mouse wheel choose from
+the hotbar, which holds every block type (no inventory screen); `0` is the spawn tool
+(right click a block to spawn on top of it). Reach is five blocks.
+
+### Blocks
+
+| # | Block | Notes |
+|---|---|---|
+| 1 | Panel | light, solid, takes rifts |
+| 2 | Plate | dark, solid, rifts bounce off |
+| 3 | Glass | see-through, solid |
+| 4 | Panel stairs | a slope you walk up (0.6 step-up); a run of two matching stairs takes a rift on the slope |
+| 5 | Plate stairs | same shape, no rifts |
+| 6 | Exit | touch it to finish |
+| 7 | Acid | touch it and you respawn |
+| 8 | Button | any player standing on it opens every door |
+| 9 | Door | solid until a button is held |
+
+Stairs face the way you look when you place them (high step away from you); placed on the
+underside of a block, or on the upper half of a side face, they hang upside down, like
+stair blocks in any voxel game. A stair cell stores its facing and flip in a `meta` value
+(`[x, y, z, type, meta]` in the map JSON; see `src/api/maps.ts`).
+
+**Rifts on slopes.** The rift's long axis runs along the climb and its normal points up
+and out of the slope, so walking up the run carries you through, and the matching exit
+preserves that momentum. Upside-down stairs do not take rifts.
+
+### Characters, gun, textures
+
+Every player is the familiar six-box figure (`public/js/model.js`), with its faces laid out
+on a 64x64 image the standard way, so a ready-made skin in that layout drops in through
+`Character.setSkin(image)`. Until textures are wired up, a flat skin in the player's
+Solfray colour is painted through the same UVs. The portal gun is a handful of boxes with
+a core that glows in the colour of the last rift fired. Block materials carry a `texture`
+slot in `BLOCK_INFO` for the same reason: textures are a follow-up, not a redesign.
 
 ---
 
@@ -192,7 +240,8 @@ public/js/world.js        voxel map, instanced meshes, starter map
 public/js/player.js       first-person controller + grid collision
 public/js/rifts.js        rift placement, render-to-texture views, teleport
 public/js/avatars.js      remote players from interpolated poses
-public/js/editor.js       build mode
+public/js/model.js        blocky character (64x64 skin UVs), portal gun, held block
+public/js/editor.js       build mode: creative controls and the hotbar
 test/                     vitest (Node): tokens, map validation
 ```
 
@@ -200,7 +249,8 @@ test/                     vitest (Node): tokens, map validation
 
 * 50 players per room (manifest `players.max`, `RoomDO` cap). Inside Solfray the relay's
   own budgets apply (Solfray.LIMITS); poses stream at 15 Hz per player either way.
-* Maps: up to 64³ cells, 20,000 blocks, 256 KB JSON.
+* Maps: up to 64³ cells, 20,000 blocks, 256 KB JSON. Nine block types; stairs carry a
+  3-bit orientation.
 * The render-through view is drawn for **your own** rift pair only (two extra renders per
   frame); other players' rifts show a swirl. Doors open from the poses every page sees,
   so they need no host.

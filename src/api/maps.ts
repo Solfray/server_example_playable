@@ -26,7 +26,9 @@ import { randomId } from "../auth/crypto";
 //   "schema": 1,
 //   "size":   [w, h, d],              4..64 cells on each axis
 //   "spawn":  [x, y, z, yaw],         cell coordinates (floats allowed), radians
-//   "blocks": [[x, y, z, type], ...]  one entry per solid cell, type below
+//   "blocks": [[x, y, z, type], ...]  one entry per solid cell, type below;
+//             a fifth element `meta` (0..7) is allowed on stair blocks:
+//             bits 0-1 the facing (0:+Z 1:+X 2:-Z 3:-X), bit 2 upside down
 // }
 //
 // Block types (public/js/world.js draws them, public/js/player.js collides):
@@ -38,7 +40,11 @@ export const BLOCK = {
   BUTTON: 5, // floor button: any player standing on it opens every DOOR
   DOOR: 6, // door block: solid while no button is pressed
   GLASS: 7, // glass: solid, see-through, not riftable
+  STAIR: 8, // panel stairs: a walkable slope; a two-step run takes a rift
+  STAIR_STEEL: 9, // plate stairs: same shape, rifts bounce off
 } as const;
+
+const STAIR_TYPES = new Set<number>([BLOCK.STAIR, BLOCK.STAIR_STEEL]);
 
 export const MAP_LIMITS = {
   minSize: 4,
@@ -53,7 +59,7 @@ export interface MapData {
   schema: 1;
   size: [number, number, number];
   spawn: [number, number, number, number];
-  blocks: Array<[number, number, number, number]>;
+  blocks: Array<[number, number, number, number] | [number, number, number, number, number]>;
 }
 
 export type MapCheck = { ok: true; data: MapData } | { ok: false; field: string };
@@ -78,15 +84,18 @@ export function validateMap(raw: unknown): MapCheck {
   const blocks: MapData["blocks"] = [];
   const types = new Set<number>(Object.values(BLOCK));
   for (const b of m.blocks) {
-    if (!Array.isArray(b) || b.length !== 4) return bad("blocks");
+    if (!Array.isArray(b) || (b.length !== 4 && b.length !== 5)) return bad("blocks");
     const [x, y, z, t] = b.map(Number);
-    if (![x, y, z, t].every(Number.isInteger)) return bad("blocks");
+    const meta = b.length === 5 ? Number(b[4]) : 0;
+    if (![x, y, z, t, meta].every(Number.isInteger)) return bad("blocks");
     if (x < 0 || y < 0 || z < 0 || x >= size[0] || y >= size[1] || z >= size[2]) return bad("blocks");
     if (!types.has(t)) return bad("blocks");
+    // Only stairs carry meta, and only 0..7 (the client packs it in 3 bits).
+    if (meta < 0 || meta > 7 || (meta !== 0 && !STAIR_TYPES.has(t))) return bad("blocks");
     const key = (x * size[1] + y) * size[2] + z;
     if (seen.has(key)) continue; // duplicate cell: last one is dropped, first wins
     seen.add(key);
-    blocks.push([x, y, z, t]);
+    blocks.push(meta ? [x, y, z, t, meta] : [x, y, z, t]);
   }
   return { ok: true, data: { schema: 1, size, spawn, blocks } };
 }

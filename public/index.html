@@ -16,7 +16,10 @@
 
   <!-- Three.js from a CDN. Pinned; bump deliberately. -->
   <script type="importmap">
-    { "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.186.1/build/three.module.js" } }
+    { "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.186.1/build/three.module.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.186.1/examples/jsm/"
+    } }
   </script>
 </head>
 <body>
@@ -37,7 +40,11 @@
       <button id="btn-help" title="H">?</button>
     </div>
     <div id="crosshair"></div>
-    <div id="palette" hidden></div>
+    <!-- Build-mode hotbar: every block type in one quick bar (keys 1-9, 0). -->
+    <div id="hotbar-wrap" hidden>
+      <div id="hotbar-label"></div>
+      <div id="hotbar"></div>
+    </div>
     <div id="hint" class="bar bottom"></div>
     <div id="toasts"></div>
   </div>

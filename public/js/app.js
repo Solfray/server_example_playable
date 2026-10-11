@@ -13,6 +13,7 @@
 import * as THREE from "three";
 import { World, starterMap, blankMap, BLOCK } from "./world.js";
 import { Player } from "./player.js";
+import { PortalGun, HeldBlock } from "./model.js";
 import { Rifts } from "./rifts.js";
 import { Avatars } from "./avatars.js";
 import { Editor } from "./editor.js";
@@ -22,7 +23,7 @@ import { Api } from "./api.js";
 // SOLFRAY TIE-IN (guide 7c): the same string as "version" in
 // /solfray-playable.json. Solfray compares the two and tells a player on a
 // stale build to reload. Bump both on every deploy.
-const VERSION = "1.0.0";
+const VERSION = "1.1.0";
 // Schema of the shared room state. Bump when its shape changes; a room whose
 // state carries an older schema starts fresh (guide 7c, step 3).
 const STATE_SCHEMA = 1;
@@ -40,6 +41,8 @@ const app = {
   rifts: null,
   avatars: null,
   editor: null,
+  gun: null,
+  held: null,
   map: null, // { id, name, description, is_public, mine, owner } or null
   dirty: false,
   finished: false,
@@ -129,8 +132,16 @@ function setupThree() {
   scene = new THREE.Scene();
   scene.background = new THREE.Color(0x0e1116);
   scene.fog = new THREE.Fog(0x0e1116, 40, 110);
-  camera = new THREE.PerspectiveCamera(80, 1, 0.05, 200);
+  camera = new THREE.PerspectiveCamera(70, 1, 0.05, 200);
   camera.rotation.order = "YXZ";
+  // The camera is in the scene so the first-person viewmodels (portal gun,
+  // held block) can hang off it.
+  scene.add(camera);
+  app.gun = new PortalGun();
+  camera.add(app.gun.group);
+  app.held = new HeldBlock();
+  app.held.group.visible = false;
+  camera.add(app.held.group);
   scene.add(new THREE.HemisphereLight(0xcfd8e3, 0x2a2f36, 1.1));
   const sun = new THREE.DirectionalLight(0xffffff, 1.4);
   sun.position.set(30, 60, 20);
@@ -183,6 +194,9 @@ function attachNet(net) {
     onState(net.state);
   });
   net.on("profile", (p) => app.avatars.rename({ ...p, color: colorOf(p.pk) }));
+  // SOLFRAY TIE-IN (guide 6b, backburner): a player changed their skin.
+  // Nothing fires until the manifest declares a "skin" slot.
+  if (net.sf) net.sf.on("skin", (p) => app.avatars.reskin(p));
   hud();
 }
 
@@ -335,7 +349,8 @@ function newMap() {
   }
   document.title = "New map · Rift Builder";
   hud();
-  toast("New map. Left click places, right click removes, 1–7 pick a block, 0 sets spawn. Save when ready.", 7000);
+  hotbar();
+  toast("New map. Right click places, left click breaks, 1–9 pick a block, 0 is the spawn tool, double-tap Space to fly. Save when ready.", 8000);
 }
 
 /** Can the current identity own maps on this server? */
@@ -406,18 +421,25 @@ function setupInput() {
   canvas.addEventListener("mousedown", (e) => {
     if (!app.locked) return;
     if (app.editor.active) {
-      if (e.button === 0 && app.editor.primary()) app.dirty = true;
-      if (e.button === 2 && app.editor.secondary()) app.dirty = true;
+      // Creative-mode mouse: left breaks, right places, middle picks.
+      if (e.button === 0 && app.editor.breakBlock()) app.dirty = true;
+      if (e.button === 2 && app.editor.placeBlock()) app.dirty = true;
+      if (e.button === 1) {
+        e.preventDefault();
+        app.editor.pickBlock();
+        hotbar();
+      }
       hud();
     } else {
       if (e.button === 0) shoot("a");
       if (e.button === 2) shoot("b");
     }
   });
+  canvas.addEventListener("auxclick", (e) => e.preventDefault());
   canvas.addEventListener("wheel", (e) => {
     if (app.editor.active) {
       app.editor.cycle(e.deltaY > 0 ? 1 : -1);
-      palette();
+      hotbar();
     }
   }, { passive: true });
   document.addEventListener("keydown", (e) => {
@@ -426,6 +448,7 @@ function setupInput() {
       return;
     }
     if (e.target && (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA")) return;
+    if (!e.repeat) app.player.keyPressed(e.code, performance.now());
     app.player.keys.add(e.code);
     switch (e.code) {
       case "KeyR":
@@ -455,16 +478,10 @@ function setupInput() {
           loadMap(s.id);
         }
         break;
-      case "Digit0":
-        if (app.editor.active) {
-          app.editor.tool = "spawn";
-          palette();
-        }
-        break;
       default:
-        if (app.editor.active && /^Digit[1-7]$/.test(e.code)) {
-          app.editor.select(Number(e.code.slice(5)));
-          palette();
+        if (app.editor.active && /^Digit[0-9]$/.test(e.code)) {
+          app.editor.selectDigit(Number(e.code.slice(5)));
+          hotbar();
         }
     }
     if (e.code === "Space") e.preventDefault();
@@ -480,6 +497,7 @@ function shoot(which) {
     setTimeout(() => $("crosshair").classList.remove("no"), 150);
     return;
   }
+  app.gun.fire(which === "a" ? 0x3fa9ff : 0xff9a3f);
   // SOLFRAY TIE-IN (guide 4c, rule 4): an event, not a state write. My own
   // handler runs now; everyone else's when it lands.
   if (app.net) app.net.event({ k: "rift", which, p });
@@ -500,7 +518,7 @@ function toggleBuild() {
     app.player.vel.set(0, 0, 0);
   }
   hud();
-  palette();
+  hotbar();
 }
 
 // ---------------------------------------------------------------------------
@@ -534,12 +552,12 @@ function simulate(dt) {
   world.setDoorsOpen(world.buttonsPressedBy(feet));
 
   if (!overlayOpen() || app.editor.active) {
-    tmpPrev.copy(player.pos).add({ x: 0, y: 0.9, z: 0 });
+    player.center(tmpPrev);
     world.passable = app.editor.active ? null : app.rifts.passable(tmpPrev);
     player.update(dt, world);
     world.passable = null;
     if (!app.editor.active) {
-      tmpCenter.copy(player.pos).add({ x: 0, y: 0.9, z: 0 });
+      player.center(tmpCenter);
       const x = app.rifts.crossing(tmpPrev, tmpCenter);
       if (x) teleport(x);
       if (player.pos.y < -12 || player.touching(world, BLOCK.HAZARD)) {
@@ -554,23 +572,42 @@ function simulate(dt) {
     // SOLFRAY TIE-IN (guide 4c, rule 1): my pose every frame; the SDK (or
     // RoomNet) streams it at 15 Hz. Others are drawn from poseOf().
     app.net.pose(player.pose());
-    app.avatars.update(app.net);
+    app.avatars.update(app.net, dt);
   }
+
+  // First-person viewmodels: the portal gun when playing, the selected
+  // block when building.
+  app.gun.group.visible = !app.editor.active;
+  app.gun.animate(dt);
+  if (app.editor.active) app.held.setBlock(app.editor.tool === "block" ? app.editor.info : null);
+  else app.held.group.visible = false;
+  app.held.animate(dt);
 }
 
 function render() {
   const player = app.player;
   camera.position.copy(player.eye());
   camera.rotation.set(player.pitch, player.yaw + Math.PI, 0);
+  // Sprinting widens the view a touch, as players expect.
+  const fov = player.sprinting ? 76 : 70;
+  if (Math.abs(camera.fov - fov) > 0.05) {
+    camera.fov += (fov - camera.fov) * 0.2;
+    camera.updateProjectionMatrix();
+  }
   camera.updateMatrixWorld();
+  // The viewmodels are not part of the world the rifts look into.
+  const gunVisible = app.gun.group.visible, heldVisible = app.held.group.visible;
+  app.gun.group.visible = app.held.group.visible = false;
   app.rifts.renderViews(scene, camera, myPk());
+  app.gun.group.visible = gunVisible;
+  app.held.group.visible = heldVisible;
   renderer.render(scene, camera);
 }
 
 function teleport(x) {
   const player = app.player;
   const R = new THREE.Matrix3().setFromMatrix4(x.m);
-  const center = player.pos.clone().add({ x: 0, y: 0.9, z: 0 }).applyMatrix4(x.m);
+  const center = player.center().applyMatrix4(x.m);
   player.pos.copy(center).sub({ x: 0, y: 0.9, z: 0 }).addScaledVector(x.to.normal, 0.08);
   player.vel.applyMatrix3(R);
   const fwd = player.forward().applyMatrix3(R);
@@ -580,6 +617,13 @@ function teleport(x) {
   const along = player.vel.dot(x.to.normal);
   if (along < 2) player.vel.addScaledVector(x.to.normal, 2 - along);
   player.onGround = false;
+  // The body is taller than the oval is wide, so a low crossing can leave
+  // the feet inside the blocks around the exit (a wall's bottom row, say).
+  // Nudge out along the exit normal until clear; the exit's own backing
+  // cells do not count.
+  app.world.passable = new Set(x.to.cells.map((c) => c.join(",")));
+  for (let i = 0; i < 8 && player.collides(app.world); i++) player.pos.addScaledVector(x.to.normal, 0.08);
+  app.world.passable = null;
 }
 
 function now() {
@@ -654,12 +698,11 @@ function setupUi() {
   $("overlay").addEventListener("click", (e) => {
     if (e.target === $("overlay")) closeOverlay();
   });
-  $("palette").addEventListener("click", (e) => {
-    const b = e.target.closest("button[data-type]");
+  $("hotbar").addEventListener("click", (e) => {
+    const b = e.target.closest("button[data-slot]");
     if (!b) return;
-    if (b.dataset.type === "spawn") app.editor.tool = "spawn";
-    else app.editor.select(Number(b.dataset.type));
-    palette();
+    app.editor.selectSlot(Number(b.dataset.slot));
+    hotbar();
   });
   hud();
 }
@@ -679,14 +722,15 @@ function hud() {
   $("btn-build").disabled = !app.map;
   $("btn-save").disabled = !app.map;
   $("btn-save").textContent = app.map && app.map.id && app.map.id !== "starter" && app.map.mine ? "Save" : "Save as…";
-  $("palette").hidden = !(app.editor && app.editor.active);
+  $("hotbar-wrap").hidden = !(app.editor && app.editor.active);
   $("hint").textContent = app.editor && app.editor.active
-    ? "WASD fly · Space/C up/down · LMB place · RMB remove · wheel or 1–7 block · 0 spawn tool · B play"
-    : "WASD move · Space jump · Shift run · LMB blue rift · RMB orange rift · X clear rifts · R restart · M maps";
+    ? "WASD · double-tap Space to fly (Space up, Shift down) · Ctrl fast · RMB place · LMB break · MMB pick · wheel/1–9 block · 0 spawn tool · B play"
+    : "WASD · Space jump · Shift sneak · Ctrl sprint · LMB blue rift · RMB orange rift · X clear rifts · R restart · B build · M maps";
 }
 
-function palette() {
-  $("palette").innerHTML = app.editor.paletteHtml();
+function hotbar() {
+  $("hotbar").innerHTML = app.editor.hotbarHtml();
+  $("hotbar-label").textContent = app.editor.slotLabel();
 }
 
 function toast(text, ms = 3000) {
@@ -765,7 +809,7 @@ async function fillList(scope) {
         await loadMap(row.dataset.id);
         app.editor.setActive(true);
         hud();
-        palette();
+        hotbar();
       };
       const del = row.querySelector('[data-act="del"]');
       if (del) del.onclick = async () => {
@@ -813,7 +857,8 @@ function openSave() {
 function openHelp() {
   showOverlay(`<h2>Rift Builder</h2>
     <p>Place two linked rifts on <b>light panels</b> (left click blue, right click orange), walk through one and come out of the other with your speed intact. Reach the green exit pad. Dark plates and glass refuse rifts; acid sends you back; a floor button held down by any player opens every door, so bring friends.</p>
-    <p><b>Build</b> (B): fly, left click places the selected block on the face you look at, right click removes, 1–7 picks a block, 0 then click sets the spawn. Save as… stores the map on this server under your account; tick Public to list it.</p>
+    <p><b>Play</b>: WASD, Space jumps, Shift sneaks (slower, never off an edge), Ctrl sprints. Left click fires the blue rift, right click the orange one. Stairs are slopes: a rift aimed at a two-step run sits on the slope, and a rift aimed at a floor or wall needs two panels of room.</p>
+    <p><b>Build</b> (B): creative controls. Double-tap Space to fly (Space up, Shift down, Ctrl fast). Right click places the selected block against the face you look at, left click breaks, middle click picks. Keys 1–9 and the wheel choose a block from the hotbar; 0 is the spawn tool (right click a block to spawn on it). Stairs face the way you look; placed under a block they hang upside down. Save as… stores the map on this server under your account; tick Public to list it.</p>
     <h3>Who you are</h3>
     <p>${identityNote()}</p>
     <h3>Multiplayer</h3>

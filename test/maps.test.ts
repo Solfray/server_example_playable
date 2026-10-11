@@ -38,6 +38,15 @@ describe("map validation", () => {
     expect(r.ok && r.data.blocks).toEqual([[0, 0, 0, BLOCK.PANEL]]);
   });
 
+  it("accepts stair meta only on stairs, 0..7, and normalises meta 0 away", () => {
+    const r = validateMap({ ...good(), blocks: [[0, 0, 0, BLOCK.STAIR, 5], [1, 0, 0, BLOCK.STAIR_STEEL, 0], [2, 0, 0, BLOCK.PANEL]] });
+    expect(r.ok && r.data.blocks).toEqual([[0, 0, 0, BLOCK.STAIR, 5], [1, 0, 0, BLOCK.STAIR_STEEL], [2, 0, 0, BLOCK.PANEL]]);
+    expect(validateMap({ ...good(), blocks: [[0, 0, 0, BLOCK.PANEL, 1]] })).toEqual({ ok: false, field: "blocks" });
+    expect(validateMap({ ...good(), blocks: [[0, 0, 0, BLOCK.STAIR, 8]] })).toEqual({ ok: false, field: "blocks" });
+    expect(validateMap({ ...good(), blocks: [[0, 0, 0, BLOCK.STAIR, 1.5]] })).toEqual({ ok: false, field: "blocks" });
+    expect(validateMap({ ...good(), blocks: [[0, 0, 0, BLOCK.STAIR, 1, 1]] })).toEqual({ ok: false, field: "blocks" });
+  });
+
   it("caps the block count", () => {
     const blocks = [];
     for (let i = 0; i < MAP_LIMITS.maxBlocks + 1; i++) blocks.push([i % 64, Math.floor(i / 64) % 64, 0, 1]);

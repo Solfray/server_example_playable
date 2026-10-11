@@ -14,7 +14,7 @@
 // only mean two players see a rift a few centimetres apart.
 
 import * as THREE from "three";
-import { BLOCK_INFO } from "./world.js";
+import { BLOCK_INFO, isStair, STAIR_DIR, stairRot, stairFlipped } from "./world.js";
 
 export const RX = 0.45; // half width
 export const RY = 0.9; // half height
@@ -83,6 +83,7 @@ export class Rifts {
     const hit = world.raycast(origin, dir, 48, false);
     if (!hit) return null;
     if (!BLOCK_INFO[hit.t] || !BLOCK_INFO[hit.t].riftable) return null;
+    if (isStair(hit.t)) return this.aimSlope(world, hit);
     const n = new THREE.Vector3(hit.nx, hit.ny, hit.nz);
     // The long axis of the oval: world up on walls, the shooter's heading
     // snapped to an axis on floors and ceilings.
@@ -98,7 +99,7 @@ export class Rifts {
     for (const side of candidates) {
       const other = cell.clone().addScaledVector(up, side);
       const cells = side > 0 ? [cell, other] : [other, cell];
-      if (!cells.every((c) => BLOCK_INFO[world.get(c.x, c.y, c.z)]?.riftable)) continue;
+      if (!cells.every((c) => BLOCK_INFO[world.get(c.x, c.y, c.z)]?.riftable && !isStair(world.get(c.x, c.y, c.z)))) continue;
       // The two cells in front of the footprint must be open air.
       if (cells.some((c) => world.isSolid(c.x + n.x, c.y + n.y, c.z + n.z))) continue;
       const center = faceCenter.clone().addScaledVector(up, side * 0.5);
@@ -117,6 +118,47 @@ export class Rifts {
       };
     }
     return null;
+  }
+
+  /** A rift on a slope. Stairs are the game's slopes: a run of two matching
+   *  stair cells, one diagonal step apart, is a 45-degree surface 2.8 units
+   *  long, enough for the 1.8-unit oval. The rift's normal points up and
+   *  out of the slope; its long axis runs along the climb. The two stair
+   *  cells (plus the block under the upper step) are the backing cells the
+   *  player may pass through. Upside-down
+   *  stairs do not take rifts. */
+  aimSlope(world, hit) {
+    const meta = hit.meta;
+    if (stairFlipped(meta)) return null;
+    const d = STAIR_DIR[stairRot(meta)];
+    const up = new THREE.Vector3(0, 1, 0);
+    const same = (x, y, z) => world.get(x, y, z) === hit.t && world.meta(x, y, z) === meta;
+    const c = new THREE.Vector3(hit.x, hit.y, hit.z);
+    // The hit cell is either the lower or the upper step of the run.
+    let lower = null;
+    if (same(c.x + d.x, c.y + 1, c.z + d.z)) lower = c;
+    else if (same(c.x - d.x, c.y - 1, c.z - d.z)) lower = c.clone().sub(d).sub(up);
+    if (!lower) return null;
+    const upper = lower.clone().add(d).add(up);
+    // Headroom: the cells above both steps must be open.
+    if (world.isSolid(lower.x, lower.y + 1, lower.z) || world.isSolid(upper.x, upper.y + 1, upper.z)) return null;
+    const n = up.clone().sub(d).normalize(); // out of the slope, upward
+    const along = up.clone().add(d).normalize(); // along the climb
+    // The diagonal through the step corners cuts the risers; float the oval
+    // just above the riser tips (0.5 vertical = 0.354 along the normal).
+    const center = new THREE.Vector3(lower.x + 0.5 + d.x * 0.5, lower.y + 1, lower.z + 0.5 + d.z * 0.5).addScaledVector(n, 0.36);
+    for (const pair of this.byOwner.values())
+      for (const r of [pair.a, pair.b]) if (r && r.pos.distanceTo(center) < 1.2 && r.normal.dot(n) > 0.5) return null;
+    const q = (v) => Math.round(v * 1000) / 1000;
+    return {
+      x: q(center.x), y: q(center.y), z: q(center.z),
+      nx: q(n.x), ny: q(n.y), nz: q(n.z),
+      ux: q(along.x), uy: q(along.y), uz: q(along.z),
+      // Backing cells: both steps and the block under the upper step, so a
+      // player walking up the slope can reach the plane instead of bumping
+      // into the riser beneath it.
+      cells: [[lower.x, lower.y, lower.z], [upper.x, upper.y, upper.z], [lower.x + d.x, lower.y, lower.z + d.z]],
+    };
   }
 
   /** Put a rift down from a placement (local or from another player's event). */
