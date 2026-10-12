@@ -7,14 +7,18 @@
 // colour here as in every other playable, and `display` is the name the chat
 // shows them under. Players whose pose is older than a few seconds fade out.
 //
-// SOLFRAY TIE-IN (guide 6b, backburner): when the manifest declares a "skin"
-// slot, `p.skin.skin` is the URL of the player's chosen 64x64 skin. The hook
-// is applySkin() below: it already handles the load and the fallback; only
-// the manifest entry and a default skin file are missing.
+// SOLFRAY TIE-IN (guide 6b, sprite injection): the manifest declares one
+// "skin" slot (64x64, default /assets/skin-default.png), so `p.skin.skin` is
+// the URL of the skin a player chose on Solfray's Sprites button: one they
+// uploaded or painted from their pfp, already moderated and filtered by
+// Solfray. applySkin() loads it with Solfray.loadImage (CORS-safe, so the
+// screenshot button keeps working) and keeps the player's coloured default
+// when the slot is empty, the load fails, or the picture is the wrong size.
+// We don't do NFT injection (guide 6c).
 
 import * as THREE from "three";
 import { PLAYER } from "./player.js";
-import { Character } from "./model.js";
+import { Character, makeDefaultSkin } from "./model.js";
 
 export class Avatars {
   constructor(scene) {
@@ -33,19 +37,30 @@ export class Avatars {
     const label = makeLabel(p.display || p.pk.slice(0, 6), p.color || "#888888");
     label.position.y = PLAYER.height + 0.35;
     g.add(label);
-    a = { group: g, character, label, last: null, lastT: 0, speed: 0 };
+    a = { group: g, character, label, last: null, lastT: 0, speed: 0, skinUrl: null };
     this.byPk.set(p.pk, a);
     this.group.add(g);
     this.applySkin(a, p);
     return a;
   }
 
-  /** Sprite injection hook: load the player's own skin if they brought one. */
+  /** Sprite injection: dress a player in their own skin, or in the default
+   *  coloured one when they have none (or just cleared theirs). */
   applySkin(a, p) {
-    const url = p.skin && p.skin.skin;
-    if (!url || !window.Solfray || !window.Solfray.loadImage) return;
+    const url = (p.skin && p.skin.skin) || null;
+    if (url === a.skinUrl) return;
+    a.skinUrl = url;
+    if (!url || !window.Solfray || !window.Solfray.loadImage) {
+      a.character.setSkin(makeDefaultSkin(p.color || "#888888"));
+      return;
+    }
     window.Solfray.loadImage(url)
-      .then((img) => a.character.setSkin(img))
+      .then((img) => {
+        // A newer pick may have landed while this one loaded; the layout
+        // needs a square 64x64 picture (Solfray scales uploads to the slot).
+        if (a.skinUrl !== url || img.naturalWidth !== 64 || img.naturalHeight !== 64) return;
+        a.character.setSkin(img);
+      })
       .catch(() => {}); // keep the default skin
   }
 

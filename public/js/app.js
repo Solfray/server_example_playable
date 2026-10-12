@@ -23,7 +23,7 @@ import { Api } from "./api.js";
 // SOLFRAY TIE-IN (guide 7c): the same string as "version" in
 // /solfray-playable.json. Solfray compares the two and tells a player on a
 // stale build to reload. Bump both on every deploy.
-const VERSION = "1.2.0";
+const VERSION = "1.3.0";
 // Schema of the shared room state. Bump when its shape changes; a room whose
 // state carries an older schema starts fresh (guide 7c, step 3).
 const STATE_SCHEMA = 1;
@@ -71,7 +71,12 @@ async function boot() {
   //    ?mock=N fakes a hosted room for local development (guide section 8).
   let sf;
   if (window.Solfray && params.has("mock")) {
-    sf = await Solfray.mock({ players: Math.max(1, Number(params.get("mock")) || 2) });
+    // &skin=<https url> dresses the mock bots in that skin, to test sprite
+    // injection (guide 6b) without publishing.
+    const players = Math.max(1, Number(params.get("mock")) || 2);
+    const opts = { players };
+    if (params.get("skin")) opts.skins = Array.from({ length: players }, () => ({ skin: params.get("skin") }));
+    sf = await Solfray.mock(opts);
   } else if (window.Solfray) {
     sf = await Solfray.connect({ version: VERSION, timeout: framed ? 2500 : 400 });
   } else {
@@ -194,8 +199,8 @@ function attachNet(net) {
     onState(net.state);
   });
   net.on("profile", (p) => app.avatars.rename({ ...p, color: colorOf(p.pk) }));
-  // SOLFRAY TIE-IN (guide 6b, backburner): a player changed their skin.
-  // Nothing fires until the manifest declares a "skin" slot.
+  // SOLFRAY TIE-IN (guide 6b): a player picked, changed or cleared their
+  // skin on Solfray's Sprites button; repaint their character.
   if (net.sf) net.sf.on("skin", (p) => app.avatars.reskin(p));
   hud();
 }
@@ -406,11 +411,72 @@ async function save(form) {
 
 function setupInput() {
   const canvas = $("game");
-  canvas.addEventListener("click", () => {
-    if (!overlayOpen() && document.pointerLockElement !== canvas) canvas.requestPointerLock();
+  // Pointer lock is the desktop way to look around, but iPads (and frames
+  // that don't allow it) often can't lock. So the view also turns by
+  // dragging (finger, pen, or a held mouse / trackpad button), by a
+  // two-finger trackpad swipe, and by the arrow keys; and when the lock
+  // fails, a tap or click acts at the crosshair instead.
+  const requestLock = () => {
+    if (!canvas.requestPointerLock) {
+      app.noLock = true;
+      return;
+    }
+    try {
+      const p = canvas.requestPointerLock();
+      if (p && p.catch) p.catch(() => (app.noLock = true));
+    } catch {
+      app.noLock = true;
+    }
+    // Some browsers ignore the request without an error.
+    setTimeout(() => {
+      if (!app.locked) app.noLock = true;
+    }, 600);
+  };
+  document.addEventListener("pointerlockerror", () => (app.noLock = true));
+
+  let drag = null; // the one pointer currently turning the view
+  canvas.addEventListener("pointerdown", (e) => {
+    if (app.locked || overlayOpen() || drag) return;
+    drag = { id: e.pointerId, x: e.clientX, y: e.clientY, moved: 0, t: performance.now(), button: e.button, touch: e.pointerType !== "mouse" };
+    try {
+      canvas.setPointerCapture(e.pointerId);
+    } catch {}
   });
+  canvas.addEventListener("pointermove", (e) => {
+    if (!drag || e.pointerId !== drag.id || app.locked) return;
+    const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
+    drag.x = e.clientX;
+    drag.y = e.clientY;
+    drag.moved += Math.abs(dx) + Math.abs(dy);
+    // A finger turns a little faster than a mouse, so a thumb-width swipe
+    // is a useful turn on a small screen.
+    const k = drag.touch ? 1.6 : 1;
+    app.player.look(dx * k, dy * k);
+  });
+  const endDrag = (e) => {
+    if (!drag || e.pointerId !== drag.id) return;
+    const d = drag;
+    drag = null;
+    if (e.type === "pointercancel" || d.moved > 10 || overlayOpen()) return; // that was a look, not a tap
+    const long = performance.now() - d.t > 450;
+    if (d.touch) {
+      // Touch, as in mobile block games: playing, tap fires blue and a long
+      // press orange; building, tap places and a long press breaks.
+      if (app.editor.active) act(long ? 0 : 2);
+      else act(long ? 2 : 0);
+      return;
+    }
+    // Mouse or trackpad: a click captures the pointer; where that can't
+    // work (an iPad, say) the click acts at the crosshair as well.
+    if (app.noLock) act(d.button);
+    requestLock();
+  };
+  canvas.addEventListener("pointerup", endDrag);
+  canvas.addEventListener("pointercancel", endDrag);
+
   document.addEventListener("pointerlockchange", () => {
     app.locked = document.pointerLockElement === canvas;
+    if (app.locked) app.noLock = false;
     app.player.clearKeys();
     app.placeHeld = false;
     document.body.classList.toggle("locked", app.locked);
@@ -421,32 +487,20 @@ function setupInput() {
   canvas.addEventListener("contextmenu", (e) => e.preventDefault());
   canvas.addEventListener("mousedown", (e) => {
     if (!app.locked) return;
-    if (app.editor.active) {
-      // Creative-mode mouse: left breaks, right places, middle picks.
-      if (e.button === 0 && app.editor.breakBlock()) app.dirty = true;
-      if (e.button === 2) {
-        // Holding right click keeps placing, as in creative mode: walk
-        // backward along an edge to lay a line of blocks.
-        app.placeHeld = true;
-        app.placeTimer = PLACE_REPEAT;
-        if (app.editor.placeBlock()) app.dirty = true;
-      }
-      if (e.button === 1) {
-        e.preventDefault();
-        app.editor.pickBlock();
-        hotbar();
-      }
-      hud();
-    } else {
-      if (e.button === 0) shoot("a");
-      if (e.button === 2) shoot("b");
-    }
+    if (e.button === 1) e.preventDefault();
+    act(e.button, true);
   });
   document.addEventListener("mouseup", (e) => {
     if (e.button === 2) app.placeHeld = false;
   });
   canvas.addEventListener("auxclick", (e) => e.preventDefault());
   canvas.addEventListener("wheel", (e) => {
+    if (!app.locked) {
+      // Unlocked (an iPad trackpad, say): a two-finger swipe looks around.
+      const k = e.deltaMode === 1 ? 16 : 1;
+      app.player.look(e.deltaX * k * 0.6, e.deltaY * k * 0.6);
+      return;
+    }
     if (app.editor.active) {
       app.editor.cycle(e.deltaY > 0 ? 1 : -1);
       hotbar();
@@ -500,13 +554,40 @@ function setupInput() {
           hotbar();
         }
     }
-    if (e.code === "Space") e.preventDefault();
+    if (e.code === "Space" || e.code.startsWith("Arrow")) e.preventDefault();
   });
   document.addEventListener("keyup", (e) => app.player.keys.delete(e.code));
   window.addEventListener("blur", () => {
     app.player.clearKeys();
     app.placeHeld = false;
   });
+}
+
+/** A mouse button (0 left, 1 middle, 2 right) or the tap that stands in for
+ *  one, aimed at the crosshair. `held` is true for a real button that will
+ *  send a mouseup, so right click can keep placing while held. */
+function act(button, held = false) {
+  if (app.editor.active) {
+    // Creative-mode mouse: left breaks, right places, middle picks.
+    if (button === 0 && app.editor.breakBlock()) app.dirty = true;
+    if (button === 2) {
+      // Holding right click keeps placing, as in creative mode: walk
+      // backward along an edge to lay a line of blocks.
+      if (held) {
+        app.placeHeld = true;
+        app.placeTimer = PLACE_REPEAT;
+      }
+      if (app.editor.placeBlock()) app.dirty = true;
+    }
+    if (button === 1) {
+      app.editor.pickBlock();
+      hotbar();
+    }
+    hud();
+  } else {
+    if (button === 0) shoot("a");
+    if (button === 2) shoot("b");
+  }
 }
 
 function shoot(which) {
@@ -572,6 +653,11 @@ function simulate(dt) {
   world.setDoorsOpen(world.buttonsPressedBy(feet));
 
   if (!overlayOpen() || app.editor.active) {
+    // Arrow keys look around, for keyboards without a mouse (an iPad).
+    const k = player.keys, rate = 2.4 * dt; // radians per second
+    const turnX = (k.has("ArrowRight") ? 1 : 0) - (k.has("ArrowLeft") ? 1 : 0);
+    const turnY = (k.has("ArrowDown") ? 1 : 0) - (k.has("ArrowUp") ? 1 : 0);
+    if (turnX || turnY) player.turn(turnX * rate, turnY * rate * 0.7);
     player.center(tmpPrev);
     world.passable = app.editor.active ? null : app.rifts.passable(tmpPrev);
     player.update(dt, world);
@@ -757,8 +843,8 @@ function hud() {
   $("btn-save").textContent = app.map && app.map.id && app.map.id !== "starter" && app.map.mine ? "Save" : "Save as…";
   $("hotbar-wrap").hidden = !(app.editor && app.editor.active);
   $("hint").textContent = app.editor && app.editor.active
-    ? "WASD · double-tap Space to fly (Space up, Shift down) · Ctrl fast · RMB place · LMB break · MMB pick · hold RMB to keep placing · F shape · wheel/1–9 block · 0 spawn tool · B play"
-    : "WASD · Space jump · Shift sneak · Ctrl sprint · LMB blue rift · RMB orange rift · X clear rifts · R restart · B build · M maps";
+    ? "WASD · drag/arrows look · double-tap Space to fly (Space up, Shift down) · Ctrl fast · RMB place · LMB break · MMB pick · hold RMB to keep placing · F shape · wheel/1–9 block · 0 spawn tool · B play"
+    : "WASD · drag/arrows look · Space jump · Shift sneak · Ctrl sprint · LMB blue rift · RMB orange rift · X clear rifts · R restart · B build · M maps";
 }
 
 function hotbar() {
@@ -892,6 +978,7 @@ function openHelp() {
     <p>Place two linked rifts on <b>light panels</b> (left click blue, right click orange), walk through one and come out of the other with your speed intact. Reach the green exit pad. Dark plates and glass refuse rifts; acid sends you back; a floor button held down by any player opens every door, so bring friends.</p>
     <p><b>Play</b>: WASD, Space jumps, Shift sneaks (slower, never off an edge), Ctrl sprints. Left click fires the blue rift, right click the orange one. Stairs are slopes: a rift aimed at a two-step run sits on the slope, and a rift aimed at a floor or wall needs two panels of room.</p>
     <p><b>Build</b> (B): creative controls. Double-tap Space to fly (Space up, Shift down, Ctrl fast). Right click places the selected block against the face you look at (the ghost shows where), left click breaks, middle click picks. Hold right click to keep placing: walk backward off an edge while sneaking to lay a bridge. F cycles the shape: single block, 3×3 floor, 3×3 north–south wall, 3×3 east–west wall, 6-tall pillar (stairs always place singly). Fall far below the build and you land on the nearest block. Keys 1–9 and the wheel choose a block from the hotbar; 0 is the spawn tool (right click a block to spawn on it). Stairs face the way you look; placed under a block they hang upside down. Save as… stores the map on this server under your account; tick Public to list it.</p>
+    <p><b>No mouse?</b> (an iPad, a touchscreen) Drag on the game, swipe two fingers on a trackpad, or use the arrow keys to look around. Playing, tap for a blue rift and press and hold for an orange one; building, tap places and press and hold breaks.</p>
     <h3>Who you are</h3>
     <p>${identityNote()}</p>
     <h3>Multiplayer</h3>

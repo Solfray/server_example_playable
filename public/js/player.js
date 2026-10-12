@@ -86,9 +86,15 @@ export class Player {
     return new THREE.Vector3(Math.sin(this.yaw) * cp, Math.sin(this.pitch), Math.cos(this.yaw) * cp);
   }
 
+  /** Mouse-style look: dx, dy in pixels of pointer movement. */
   look(dx, dy) {
-    this.yaw -= dx * 0.0022;
-    this.pitch = Math.max(-1.55, Math.min(1.55, this.pitch - dy * 0.0022));
+    this.turn(dx * 0.0022, dy * 0.0022);
+  }
+
+  /** Turn right by `dyaw` and down by `dpitch`, in radians. */
+  turn(dyaw, dpitch) {
+    this.yaw -= dyaw;
+    this.pitch = Math.max(-1.55, Math.min(1.55, this.pitch - dpitch));
   }
 
   clearKeys() {

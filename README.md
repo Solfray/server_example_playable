@@ -43,9 +43,9 @@ comment. Grep for it.
 | `solfray:inputreset` | `public/js/app.js` | Held keys cleared on blur / pointer-lock loss |
 | `/solfray-playable.json` | `public/`, `src/index.ts` | The manifest (name, players 1–50, version), served at every path Solfray tries |
 | `frame-ancestors` | `src/index.ts` | Only solfray.com (and uz.games) may frame the page, plus the page itself |
-| `Solfray.mock({ players })` | `?mock=2` | A fake hosted room for local development |
-| `skins` / `p.skin` (guide 6b) | `public/js/model.js`, `avatars.js` | **Backburner.** The character already wraps a standard 64x64 skin image; declaring a `skin` slot in the manifest is all that is left |
-| `p.nfts` (guide 6c) | `public/js/model.js` (comment) | **Backburner.** NFT-driven skins would go through the same `skins.approved` list |
+| `Solfray.mock({ players, skins })` | `?mock=2`, `&skin=<url>` | A fake hosted room for local development; `skin` dresses the bots |
+| `skins` / `p.skin` (guide 6b) | `solfray-playable.json`, `avatars.js` | One 64x64 `skin` slot, open to uploads and pfp-painted skins; default `/assets/skin-default.png`; repainted on `skin` |
+| `p.nfts` (guide 6c) | none | Not used: skins come through plain sprite injection only |
 
 When the page is **not** inside Solfray, `public/js/net.js` (`RoomNet`) talks to our own
 Durable Object (`src/room.ts`) over a WebSocket with the same semantics, so the game code
@@ -110,8 +110,10 @@ preserves that momentum. Upside-down stairs do not take rifts.
 
 Every player is the familiar six-box figure (`public/js/model.js`), with its faces laid out
 on a 64x64 image the standard way, so a ready-made skin in that layout drops in through
-`Character.setSkin(image)`. Until textures are wired up, a flat skin in the player's
-Solfray colour is painted through the same UVs. The portal gun is a handful of boxes with
+`Character.setSkin(image)`. Inside Solfray, players pick their own skin from the
+Sprites button (sprite injection, guide 6b): upload one or paint it from their pfp, and
+everyone else sees it live. `public/assets/skin-default.png` is the template they
+download; players without a skin get that figure painted in their Solfray colour. The portal gun is a handful of boxes with
 a core that glows in the colour of the last rift fired. Block materials carry a `texture`
 slot in `BLOCK_INFO` for the same reason: textures are a follow-up, not a redesign.
 

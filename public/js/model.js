@@ -5,20 +5,14 @@
 // 64x64 "skin" layout: one square image wraps the whole figure, with each box
 // face cut from a fixed rectangle of the image. The rectangles below are the
 // standard ones, so any ready-made skin in that layout drops straight in via
-// setSkin(image). For now nobody has textures: makeDefaultSkin() paints a
-// flat-colour skin in the player's colour, through exactly the same UVs, so
-// turning real skins on later changes nothing but the image.
+// setSkin(image). Players without a skin get makeDefaultSkin(): a flat-colour
+// skin in their Solfray colour, painted through exactly the same UVs.
 //
-// SOLFRAY TIE-IN (guide 6b, sprite injection; backburner): to let players
-// bring their own skin, declare one slot in /solfray-playable.json,
-//   "skins": { "open": true, "slots": [{ "name": "skin", "w": 64, "h": 64,
-//              "default": "/assets/skin-default.png" }] }
-// then each participant arrives with p.skin.skin (an https URL Solfray has
-// already moderated and filtered against the manifest). Load it with
-// Solfray.loadImage(url) and hand it to setSkin(); repaint on sf.on("skin").
-// SOLFRAY TIE-IN (guide 6c, NFT injection; backburner): p.nfts lists the NFTs
-// a player shares from collections the manifest names; a collection's art
-// could map to an approved skin URL in the same `skins.approved` list.
+// SOLFRAY TIE-IN (guide 6b, sprite injection): /solfray-playable.json
+// declares one 64x64 "skin" slot whose default, /assets/skin-default.png, is
+// this same figure in neutral grey: the template players download from
+// Solfray's Sprites button to paint their own. avatars.js loads each
+// player's pick and hands it to setSkin().
 
 import * as THREE from "three";
 import { PLAYER } from "./player.js";
