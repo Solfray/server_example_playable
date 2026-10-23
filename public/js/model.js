@@ -16,6 +16,7 @@
 
 import * as THREE from "three";
 import { PLAYER } from "./player.js";
+import { blockGeometry } from "./world.js";
 
 const TEX = 64; // skin image is 64x64
 const PX = PLAYER.height / 32; // the model is 32 px tall and stands 1.8 units
@@ -231,25 +232,37 @@ export class PortalGun {
   }
 }
 
-/** A small floating cube of the selected block, held in build mode. */
+/** A small copy of the selected block, held in build mode. Same texture and
+ *  silhouette as the world mesh, scaled down to sit in the corner. */
 export class HeldBlock {
   constructor() {
     this.material = new THREE.MeshLambertMaterial({ color: 0xffffff });
-    this.mesh = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.16, 0.16), this.material);
+    this.mesh = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), this.material);
+    this.mesh.scale.setScalar(0.2);
     this.group = new THREE.Group();
     this.group.add(this.mesh);
     this.bob = 0;
+    this._type = 0;
   }
   setBlock(info) {
+    const next = info ? info.type : 0;
+    if (next === this._type) return;
+    this._type = next;
     if (!info) {
       this.group.visible = false;
       return;
     }
     this.group.visible = true;
-    this.material.color.set(info.color);
+    this.material.map = info.texture || null;
+    this.material.color.set(info.texture ? 0xffffff : info.color);
     this.material.emissive.set(info.emissive || 0);
-    this.material.opacity = info.opacity === undefined ? 1 : Math.max(0.4, info.opacity);
-    this.material.transparent = this.material.opacity < 1;
+    this.material.emissiveIntensity = info.emissive ? 0.65 : 0;
+    const glass = info.kind === "glass";
+    this.material.transparent = glass;
+    this.material.opacity = 1;
+    this.material.depthWrite = !glass;
+    this.material.needsUpdate = true;
+    this.mesh.geometry = blockGeometry(info.type);
   }
   animate(dt) {
     this.bob += dt;

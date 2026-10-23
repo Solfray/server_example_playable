@@ -61,7 +61,9 @@ cp .dev.vars.example .dev.vars     # set SESSION_SECRET; Google is optional
 npm run dev                        # http://localhost:8787
 ```
 
-* `http://localhost:8787/?map=starter` plays the built-in map in a standalone room.
+* `http://localhost:8787/?map=example` plays the example course: every block, a
+  few minutes solo (panels vs plates, a slope rift, glass, button and door, acid, exit).
+* `http://localhost:8787/?map=starter` plays the built-in yard in a standalone room.
   Open it in two tabs to see two players.
 * `http://localhost:8787/?map=starter&mock=2` fakes a Solfray room with a bot
   (the SDK's `Solfray.mock`; no token is minted in mock mode, so saving uses Google).
@@ -102,6 +104,12 @@ underside of a block, or on the upper half of a side face, they hang upside down
 stair blocks in any voxel game. A stair cell stores its facing and flip in a `meta` value
 (`[x, y, z, type, meta]` in the map JSON; see `src/api/maps.ts`).
 
+Panels are cool light frames; plates are warm dark tread. Panel stairs wear a blue nosing,
+plate stairs an amber one. The button is a low pad, the exit a pad with a beacon, acid a
+sunken pool, the door a slab with a rail, and glass a framed pane. Each face is a generated
+16×16 tile shared by every copy of that block (the `texture` slot on `BLOCK_INFO`). The
+hotbar swatches are those same tiles, with the matching silhouette.
+
 **Rifts on slopes.** The rift's long axis runs along the climb and its normal points up
 and out of the slope, so walking up the run carries you through, and the matching exit
 preserves that momentum. Upside-down stairs do not take rifts.
@@ -114,8 +122,9 @@ on a 64x64 image the standard way, so a ready-made skin in that layout drops in 
 Sprites button (sprite injection, guide 6b): upload one or paint it from their pfp, and
 everyone else sees it live. `public/assets/skin-default.png` is the template they
 download; players without a skin get that figure painted in their Solfray colour. The portal gun is a handful of boxes with
-a core that glows in the colour of the last rift fired. Block materials carry a `texture`
-slot in `BLOCK_INFO` for the same reason: textures are a follow-up, not a redesign.
+a core that glows in the colour of the last rift fired. Block faces use the `texture`
+slot on `BLOCK_INFO`: a 16×16 tile painted at startup, nearest-filtered, one draw per
+block type. Swap the canvas in `makeTile` to restyle a block without touching the meshes.
 
 ---
 
@@ -238,7 +247,7 @@ public/solfray-playable.json
 public/js/app.js          boot, map choice, room state, result string, HUD
 public/js/net.js          SolfrayNet | RoomNet behind one interface
 public/js/api.js          fetch + playable token caching
-public/js/world.js        voxel map, instanced meshes, starter map
+public/js/world.js        voxel map, instanced meshes, starter and example maps
 public/js/player.js       first-person controller + grid collision
 public/js/rifts.js        rift placement, render-to-texture views, teleport
 public/js/avatars.js      remote players from interpolated poses
