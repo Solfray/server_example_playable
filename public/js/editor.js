@@ -256,8 +256,10 @@ export class Editor {
       const sel = i === this.slot ? " sel" : "";
       if (s === "spawn") return `<button class="slot${sel}" data-slot="${i}" title="Spawn tool: right click a block to put the spawn on it"><span class="sw spawn"></span><span class="key">${key}</span></button>`;
       const info = BLOCK_INFO[s];
-      const stair = info.stair ? " stair" : "";
-      return `<button class="slot${sel}" data-slot="${i}" title="${info.name}: ${info.hint}"><span class="sw${stair}" style="background:#${info.color.toString(16).padStart(6, "0")}"></span><span class="key">${key}</span></button>`;
+      const bg = info.swatch
+        ? `background-image:url(${info.swatch})`
+        : `background:#${info.color.toString(16).padStart(6, "0")}`;
+      return `<button class="slot${sel}" data-slot="${i}" title="${info.name}: ${info.hint}"><span class="sw ${info.kind || ""}" style="${bg}"></span><span class="key">${key}</span></button>`;
     }).join("");
   }
 

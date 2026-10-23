@@ -11,7 +11,7 @@
 //   6. sf.result(text)            the Wordle-style result string at the end
 
 import * as THREE from "three";
-import { World, starterMap, blankMap, BLOCK } from "./world.js";
+import { World, blankMap, builtinMap, isBuiltinMap, BLOCK } from "./world.js";
 import { Player } from "./player.js";
 import { PortalGun, HeldBlock } from "./model.js";
 import { Rifts } from "./rifts.js";
@@ -23,7 +23,7 @@ import { Api } from "./api.js";
 // SOLFRAY TIE-IN (guide 7c): the same string as "version" in
 // /solfray-playable.json. Solfray compares the two and tells a player on a
 // stale build to reload. Bump both on every deploy.
-const VERSION = "1.3.0";
+const VERSION = "1.4.0";
 // Schema of the shared room state. Bump when its shape changes; a room whose
 // state carries an older schema starts fresh (guide 7c, step 3).
 const STATE_SCHEMA = 1;
@@ -283,9 +283,10 @@ function short(pk) {
 async function loadMap(id, opts = {}) {
   closeOverlay();
   let meta, data;
-  if (id === "starter") {
-    meta = { id: "starter", name: "Starter yard", description: "The built-in teaching map. Save a copy to make it yours.", mine: false, is_public: true, owner: "Rift Builder" };
-    data = starterMap();
+  const builtin = builtinMap(id);
+  if (builtin) {
+    meta = { id: builtin.id, name: builtin.name, description: builtin.description, mine: false, is_public: true, owner: "Rift Builder" };
+    data = builtin.data;
   } else {
     try {
       const m = await app.api.getMap(id);
@@ -331,7 +332,7 @@ async function loadMap(id, opts = {}) {
     u.searchParams.set("map", id);
     history.replaceState(null, "", u);
   }
-  if (id !== "starter" && !sameMap) app.api.bumpPlay(id);
+  if (!isBuiltinMap(id) && !sameMap) app.api.bumpPlay(id);
   hud();
   toast(`Loaded "${meta.name}"${meta.owner ? " by " + meta.owner : ""}`);
 }
@@ -371,7 +372,7 @@ async function save(form) {
   if (form) Object.assign(payload, { name: form.name, description: form.description, is_public: form.is_public });
   try {
     let id = app.map.id;
-    if (id && id !== "starter" && app.map.mine && !(form && form.copy)) {
+    if (id && !isBuiltinMap(id) && app.map.mine && !(form && form.copy)) {
       await app.api.updateMap(id, payload);
     } else {
       if (!form) return openSave();
@@ -645,6 +646,7 @@ function simulate(dt) {
   const world = app.world, player = app.player;
 
   world.rebuild();
+  world.animate(performance.now());
   app.editor.update();
 
   // Buttons and doors are derived from where everyone stands, so every page
@@ -804,7 +806,7 @@ function whoLabel() {
 function setupUi() {
   $("btn-maps").onclick = openBrowser;
   $("btn-build").onclick = toggleBuild;
-  $("btn-save").onclick = () => (app.map && app.map.id && app.map.id !== "starter" && app.map.mine ? save() : openSave());
+  $("btn-save").onclick = () => (app.map && app.map.id && !isBuiltinMap(app.map.id) && app.map.mine ? save() : openSave());
   $("btn-help").onclick = openHelp;
   $("btn-result").onclick = async () => {
     try {
@@ -840,7 +842,7 @@ function hud() {
   $("btn-build").textContent = app.editor && app.editor.active ? "Play (B)" : "Build (B)";
   $("btn-build").disabled = !app.map;
   $("btn-save").disabled = !app.map;
-  $("btn-save").textContent = app.map && app.map.id && app.map.id !== "starter" && app.map.mine ? "Save" : "Save as…";
+  $("btn-save").textContent = app.map && app.map.id && !isBuiltinMap(app.map.id) && app.map.mine ? "Save" : "Save as…";
   $("hotbar-wrap").hidden = !(app.editor && app.editor.active);
   $("hint").textContent = app.editor && app.editor.active
     ? "WASD · drag/arrows look · double-tap Space to fly (Space up, Shift down) · Ctrl fast · RMB place · LMB break · MMB pick · hold RMB to keep placing · F shape · wheel/1–9 block · 0 spawn tool · B play"
@@ -886,12 +888,14 @@ async function openBrowser() {
     <div id="maplist" class="list">Loading…</div>
     <div class="row">
       <button id="ov-new">New map</button>
+      <button id="ov-example">Example course</button>
       <button id="ov-starter">Starter yard</button>
       <span class="grow"></span>
       ${signinHtml()}
     </div>
     <p class="muted" id="identity-note">${identityNote()}</p>`);
   $("ov-new").onclick = newMap;
+  $("ov-example").onclick = () => pickMap("example", "Example course");
   $("ov-starter").onclick = () => pickMap("starter", "Starter yard");
   wireSignin();
   const tabs = $("overlay-body").querySelectorAll(".tabs button");
@@ -962,7 +966,7 @@ function openSave() {
     wireSignin();
     return;
   }
-  const copy = !(app.map.id && app.map.id !== "starter" && app.map.mine);
+  const copy = !(app.map.id && !isBuiltinMap(app.map.id) && app.map.mine);
   showOverlay(`<h2>${copy ? "Save a copy" : "Save"}</h2>
     <label>Name <input id="sv-name" maxlength="48" value="${esc(copy && app.map.id ? app.map.name + " (copy)" : app.map.name)}"></label>
     <label>Description <textarea id="sv-desc" maxlength="300" rows="2">${esc(app.map.description || "")}</textarea></label>
@@ -975,7 +979,7 @@ function openSave() {
 
 function openHelp() {
   showOverlay(`<h2>Rift Builder</h2>
-    <p>Place two linked rifts on <b>light panels</b> (left click blue, right click orange), walk through one and come out of the other with your speed intact. Reach the green exit pad. Dark plates and glass refuse rifts; acid sends you back; a floor button held down by any player opens every door, so bring friends.</p>
+    <p>Place two linked rifts on <b>light panels</b> (left click blue, right click orange), walk through one and come out of the other with your speed intact. Reach the green exit pad. Dark plates and glass refuse rifts; acid sends you back; a floor button held down by any player opens every door, so bring friends. The <b>Example course</b> (Maps, or <b>?map=example</b>) is a short solo run through every block.</p>
     <p><b>Play</b>: WASD, Space jumps, Shift sneaks (slower, never off an edge), Ctrl sprints. Left click fires the blue rift, right click the orange one. Stairs are slopes: a rift aimed at a two-step run sits on the slope, and a rift aimed at a floor or wall needs two panels of room.</p>
     <p><b>Build</b> (B): creative controls. Double-tap Space to fly (Space up, Shift down, Ctrl fast). Right click places the selected block against the face you look at (the ghost shows where), left click breaks, middle click picks. Hold right click to keep placing: walk backward off an edge while sneaking to lay a bridge. F cycles the shape: single block, 3×3 floor, 3×3 north–south wall, 3×3 east–west wall, 6-tall pillar (stairs always place singly). Fall far below the build and you land on the nearest block. Keys 1–9 and the wheel choose a block from the hotbar; 0 is the spawn tool (right click a block to spawn on it). Stairs face the way you look; placed under a block they hang upside down. Save as… stores the map on this server under your account; tick Public to list it.</p>
     <p><b>No mouse?</b> (an iPad, a touchscreen) Drag on the game, swipe two fingers on a trackpad, or use the arrow keys to look around. Playing, tap for a blue rift and press and hold for an orange one; building, tap places and press and hold breaks.</p>
