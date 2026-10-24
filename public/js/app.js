@@ -11,7 +11,7 @@
 //   6. sf.result(text)            the Wordle-style result string at the end
 
 import * as THREE from "three";
-import { World, blankMap, builtinMap, isBuiltinMap, BLOCK } from "./world.js";
+import { World, blankMap, builtinMap, isBuiltinMap, isTemplateMap, listTemplateMaps, BLOCK } from "./world.js";
 import { Player } from "./player.js";
 import { PortalGun, HeldBlock } from "./model.js";
 import { Rifts } from "./rifts.js";
@@ -23,7 +23,7 @@ import { Api } from "./api.js";
 // SOLFRAY TIE-IN (guide 7c): the same string as "version" in
 // /solfray-playable.json. Solfray compares the two and tells a player on a
 // stale build to reload. Bump both on every deploy.
-const VERSION = "1.4.0";
+const VERSION = "1.5.0";
 // Schema of the shared room state. Bump when its shape changes; a room whose
 // state carries an older schema starts fresh (guide 7c, step 3).
 const STATE_SCHEMA = 1;
@@ -241,9 +241,14 @@ function onEvent(from, d, meta) {
 /** Room state: the host's record of which map we are on and who finished. */
 function onState(s) {
   if (!s || s.schema !== STATE_SCHEMA) return;
-  if (s.mapId && (!app.map || app.map.id !== s.mapId)) loadMap(s.mapId);
-  else if (s.mapId && app.map && app.map.id === s.mapId && s.rev && app.map.updated_at && s.rev > app.map.updated_at && !app.editor.active) {
-    loadMap(s.mapId, { keepPosition: true });
+  // An unsaved map (blank, or started from a template) is local until Save.
+  // Don't let the room's current map wipe it.
+  const editingNew = app.map && !app.map.id && (app.dirty || (app.editor && app.editor.active));
+  if (!editingNew) {
+    if (s.mapId && (!app.map || app.map.id !== s.mapId)) loadMap(s.mapId);
+    else if (s.mapId && app.map && app.map.id === s.mapId && s.rev && app.map.updated_at && s.rev > app.map.updated_at && !app.editor.active) {
+      loadMap(s.mapId, { keepPosition: true });
+    }
   }
   app.finishes = Array.isArray(s.finishes) ? s.finishes : [];
   hud();
@@ -338,13 +343,21 @@ async function loadMap(id, opts = {}) {
 }
 
 function newMap() {
+  beginNewMap(blankMap(), "Untitled map", "", { lift: true });
+  toast("New map. Right click places, left click breaks, 1–9 pick a block, 0 is the spawn tool, double-tap Space to fly. Save when ready.", 8000);
+}
+
+/** Open an editable unsaved map. Saving creates a row owned by the verified
+ *  identity (POST /api/maps); this payload never names an owner. */
+function beginNewMap(data, name, description, opts = {}) {
   closeOverlay();
-  app.map = { id: null, name: "Untitled map", description: "", mine: true, is_public: false, owner: whoLabel() };
-  app.world.load(blankMap());
+  app.map = { id: null, name, description, mine: true, is_public: false, owner: whoLabel() };
+  app.world.load(data);
   app.rifts.clear();
   app.finished = false;
+  app.startedAt = now();
   app.player.respawn(app.world);
-  app.player.pos.y += 3;
+  if (opts.lift) app.player.pos.y += 3;
   app.editor.setActive(true);
   app.dirty = true;
   if (!app.sf.hosted && app.net) {
@@ -353,10 +366,23 @@ function newMap() {
     app.net = null;
     app.avatars.update({ participants: [], me: null });
   }
-  document.title = "New map · Rift Builder";
+  if (!app.sf.hosted) {
+    const u = new URL(location.href);
+    u.searchParams.delete("map");
+    history.replaceState(null, "", u);
+  }
+  document.title = `${name} · Rift Builder`;
   hud();
   hotbar();
-  toast("New map. Right click places, left click breaks, 1–9 pick a block, 0 is the spawn tool, double-tap Space to fly. Save when ready.", 8000);
+}
+
+/** Fork a base template into a new map and drop straight into build mode.
+ *  The shared template stays read-only; the copy is yours once you save. */
+function startFromTemplate(id) {
+  const builtin = builtinMap(id);
+  if (!builtin || !builtin.template) return;
+  beginNewMap(builtin.data, builtin.name, builtin.description);
+  toast(`Started a new map from “${builtin.name}”. Build on it, then Save to keep it as yours.`, 8000);
 }
 
 /** Can the current identity own maps on this server? */
@@ -608,6 +634,10 @@ function shoot(which) {
 function toggleBuild() {
   if (!app.map) return;
   if (!app.editor.active) {
+    if (isTemplateMap(app.map.id)) {
+      startFromTemplate(app.map.id);
+      return;
+    }
     if (!app.map.mine && app.map.id) {
       toast("This is someone else's map. Save a copy (Save → Save a copy) to edit it.", 6000);
       return;
@@ -839,14 +869,18 @@ function hud() {
   $("where").textContent = app.sf.hosted ? "inside Solfray" : app.net ? "standalone room" : "solo";
   $("mapname").textContent = app.map ? app.map.name + (app.dirty ? " •" : "") : "no map";
   $("players").textContent = `${n} player${n === 1 ? "" : "s"}${app.net && app.net.isHost ? " · host" : ""}`;
-  $("btn-build").textContent = app.editor && app.editor.active ? "Play (B)" : "Build (B)";
+  const onTemplate = Boolean(app.map && isTemplateMap(app.map.id) && !(app.editor && app.editor.active));
+  $("btn-build").textContent = app.editor && app.editor.active ? "Play (B)" : onTemplate ? "Start from this" : "Build (B)";
   $("btn-build").disabled = !app.map;
   $("btn-save").disabled = !app.map;
-  $("btn-save").textContent = app.map && app.map.id && !isBuiltinMap(app.map.id) && app.map.mine ? "Save" : "Save as…";
+  const owns = Boolean(app.map && app.map.id && !isBuiltinMap(app.map.id) && app.map.mine);
+  $("btn-save").textContent = owns || (app.map && !app.map.id) ? "Save" : "Save as…";
   $("hotbar-wrap").hidden = !(app.editor && app.editor.active);
   $("hint").textContent = app.editor && app.editor.active
     ? "WASD · drag/arrows look · double-tap Space to fly (Space up, Shift down) · Ctrl fast · RMB place · LMB break · MMB pick · hold RMB to keep placing · F shape · wheel/1–9 block · 0 spawn tool · B play"
-    : "WASD · drag/arrows look · Space jump · Shift sneak · Ctrl sprint · LMB blue rift · RMB orange rift · X clear rifts · R restart · B build · M maps";
+    : onTemplate
+      ? "Template · B or Start from this makes a new map you can build on and save as yours · WASD · look · Space jump · LMB/RMB rifts · M maps"
+      : "WASD · drag/arrows look · Space jump · Shift sneak · Ctrl sprint · LMB blue rift · RMB orange rift · X clear rifts · R restart · B build · M maps";
 }
 
 function hotbar() {
@@ -884,7 +918,7 @@ function showWaiting() {
 }
 
 async function openBrowser() {
-  showOverlay(`<h2>Maps</h2><div class="tabs"><button data-scope="public" class="sel">Public</button><button data-scope="mine">Mine</button></div>
+  showOverlay(`<h2>Maps</h2><div class="tabs"><button data-scope="templates" class="sel">Templates</button><button data-scope="public">Public</button><button data-scope="mine">Mine</button></div>
     <div id="maplist" class="list">Loading…</div>
     <div class="row">
       <button id="ov-new">New map</button>
@@ -903,12 +937,33 @@ async function openBrowser() {
     tabs.forEach((x) => x.classList.toggle("sel", x === b));
     fillList(b.dataset.scope);
   }));
-  fillList("public");
+  fillList("templates");
 }
 
 async function fillList(scope) {
   const el = $("maplist");
   if (!el) return;
+  if (scope === "templates") {
+    el.classList.add("templates");
+    const rows = listTemplateMaps()
+      .map(
+        (m) => `<div class="map" data-id="${esc(m.id)}">
+          <div class="grow"><b>${esc(m.name)}</b> <span class="muted">template · ?map=${esc(m.id)}</span><br><span class="muted">${esc(m.description)}</span></div>
+          <button data-act="play">Play</button>
+          <button data-act="start" class="primary">Start from this</button>
+        </div>`
+      )
+      .join("");
+    el.innerHTML = `<p class="muted">Bases to build on, so you don't have to lay the terrain first. <b>Start from this</b> opens a new map in build mode; save it and it's yours. <b>Play</b> opens the shared original, which stays read-only.</p>${rows}`;
+    el.querySelectorAll(".map").forEach((row) => {
+      const id = row.dataset.id;
+      const name = row.querySelector("b").textContent;
+      row.querySelector('[data-act="play"]').onclick = () => pickMap(id, name);
+      row.querySelector('[data-act="start"]').onclick = () => startFromTemplate(id);
+    });
+    return;
+  }
+  el.classList.remove("templates");
   el.textContent = "Loading…";
   try {
     const { maps } = await app.api.listMaps(scope);
@@ -966,9 +1021,11 @@ function openSave() {
     wireSignin();
     return;
   }
-  const copy = !(app.map.id && !isBuiltinMap(app.map.id) && app.map.mine);
-  showOverlay(`<h2>${copy ? "Save a copy" : "Save"}</h2>
-    <label>Name <input id="sv-name" maxlength="48" value="${esc(copy && app.map.id ? app.map.name + " (copy)" : app.map.name)}"></label>
+  const fresh = !app.map.id;
+  const copy = !fresh && (isBuiltinMap(app.map.id) || !app.map.mine);
+  const heading = fresh ? "Save your map" : copy ? "Save a copy" : "Save";
+  showOverlay(`<h2>${heading}</h2>
+    <label>Name <input id="sv-name" maxlength="48" value="${esc(copy ? app.map.name + " (copy)" : app.map.name)}"></label>
     <label>Description <textarea id="sv-desc" maxlength="300" rows="2">${esc(app.map.description || "")}</textarea></label>
     <label class="check"><input type="checkbox" id="sv-public" ${app.map.is_public ? "checked" : ""}> Public: list it for everyone</label>
     <div class="row"><button id="sv-ok" class="primary">${copy ? "Save copy" : "Save"}</button><button id="sv-cancel">Cancel</button></div>
@@ -980,6 +1037,7 @@ function openSave() {
 function openHelp() {
   showOverlay(`<h2>Rift Builder</h2>
     <p>Place two linked rifts on <b>light panels</b> (left click blue, right click orange), walk through one and come out of the other with your speed intact. Reach the green exit pad. Dark plates and glass refuse rifts; acid sends you back; a floor button held down by any player opens every door, so bring friends. The <b>Example course</b> (Maps, or <b>?map=example</b>) is a short solo run through every block.</p>
+    <p><b>Templates</b> (Maps → Templates, or <b>?map=arena</b> and the other names listed there) are base terrains: an arena, canyons, a corner, a U-turn, pillars, terraces, a tower, a corridor. <b>Start from this</b> copies one into a new map and opens build mode. Save stores that copy under your account. Play leaves the shared original read-only.</p>
     <p><b>Play</b>: WASD, Space jumps, Shift sneaks (slower, never off an edge), Ctrl sprints. Left click fires the blue rift, right click the orange one. Stairs are slopes: a rift aimed at a two-step run sits on the slope, and a rift aimed at a floor or wall needs two panels of room.</p>
     <p><b>Build</b> (B): creative controls. Double-tap Space to fly (Space up, Shift down, Ctrl fast). Right click places the selected block against the face you look at (the ghost shows where), left click breaks, middle click picks. Hold right click to keep placing: walk backward off an edge while sneaking to lay a bridge. F cycles the shape: single block, 3×3 floor, 3×3 north–south wall, 3×3 east–west wall, 6-tall pillar (stairs always place singly). Fall far below the build and you land on the nearest block. Keys 1–9 and the wheel choose a block from the hotbar; 0 is the spawn tool (right click a block to spawn on it). Stairs face the way you look; placed under a block they hang upside down. Save as… stores the map on this server under your account; tick Public to list it.</p>
     <p><b>No mouse?</b> (an iPad, a touchscreen) Drag on the game, swipe two fingers on a trackpad, or use the arrow keys to look around. Playing, tap for a blue rift and press and hold for an orange one; building, tap places and press and hold breaks.</p>

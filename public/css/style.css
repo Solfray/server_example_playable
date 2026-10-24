@@ -59,7 +59,7 @@ button.danger { border-color: var(--danger); color: var(--danger); }
 @keyframes in { from { opacity: 0; transform: translateY(8px); } }
 
 #overlay { position: fixed; inset: 0; background: rgba(0,0,0,.55); display: flex; align-items: center; justify-content: center; padding: 16px; z-index: 10; }
-.card { background: #141922; border: 1px solid rgba(255,255,255,.12); border-radius: 14px; padding: 18px 20px; width: min(680px, 100%); max-height: 90vh; overflow: auto; box-shadow: 0 20px 60px rgba(0,0,0,.5); }
+.card { background: #141922; border: 1px solid rgba(255,255,255,.12); border-radius: 14px; padding: 18px 20px; width: min(760px, 100%); max-height: 90vh; overflow: auto; box-shadow: 0 20px 60px rgba(0,0,0,.5); }
 .card h2 { margin: 0 0 10px; }
 .card h3 { margin: 16px 0 4px; font-size: 14px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
 .card p { margin: 8px 0; }
@@ -70,7 +70,9 @@ button.danger { border-color: var(--danger); color: var(--danger); }
 .tabs { display: flex; gap: 6px; margin-bottom: 8px; }
 .tabs .sel { border-color: var(--accent); }
 .list { display: flex; flex-direction: column; gap: 6px; max-height: 44vh; overflow: auto; }
+.list.templates { max-height: 54vh; }
 .map { display: flex; gap: 8px; align-items: center; padding: 8px 10px; border: 1px solid rgba(255,255,255,.08); border-radius: 10px; background: rgba(255,255,255,.02); }
+.map button { white-space: nowrap; }
 
 @media (max-width: 720px) {
   .bar.top { flex-wrap: wrap; }
