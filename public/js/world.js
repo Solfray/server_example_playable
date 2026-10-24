@@ -12,6 +12,7 @@
 
 import * as THREE from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
+import { isTemplateId, templateById, templateCatalog } from "./templates.js";
 
 export const BLOCK = { PANEL: 1, STEEL: 2, GOAL: 3, HAZARD: 4, BUTTON: 5, DOOR: 6, GLASS: 7, STAIR: 8, STAIR_STEEL: 9 };
 
@@ -740,10 +741,20 @@ export function exampleMap() {
   return { schema: 1, size: [W, H, D], spawn: [5, 1, 4, -0.45], blocks: [...grid.values()] };
 }
 
-const BUILTIN_IDS = new Set(["starter", "example"]);
+const COURSE_IDS = new Set(["starter", "example"]);
 
 export function isBuiltinMap(id) {
-  return BUILTIN_IDS.has(id);
+  return COURSE_IDS.has(id) || isTemplateId(id);
+}
+
+/** Base templates (see templates.js), as opposed to the starter and example courses. */
+export function isTemplateMap(id) {
+  return isTemplateId(id);
+}
+
+/** Id, name, and description for the Maps panel, in menu order. */
+export function listTemplateMaps() {
+  return templateCatalog();
 }
 
 /** Built-in maps the client serves without the API. `null` for anything else. */
@@ -764,5 +775,7 @@ export function builtinMap(id) {
       data: exampleMap(),
     };
   }
+  const template = templateById(id);
+  if (template) return { ...template, template: true };
   return null;
 }
