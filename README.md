@@ -61,14 +61,40 @@ cp .dev.vars.example .dev.vars     # set SESSION_SECRET; Google is optional
 npm run dev                        # http://localhost:8787
 ```
 
-* `http://localhost:8787/?map=starter` plays the built-in map in a standalone room.
+* `http://localhost:8787/?map=example` plays the example course: every block, a
+  few minutes solo (panels vs plates, a slope rift, glass, button and door, acid, exit).
+* `http://localhost:8787/?map=starter` plays the built-in yard in a standalone room.
   Open it in two tabs to see two players.
+* `http://localhost:8787/?map=arena` (or any id in the table below) opens a base
+  template. In Maps → Templates, **Start from this** copies it into a new map
+  and opens build mode; **Play** opens the shared original, which stays read-only.
 * `http://localhost:8787/?map=starter&mock=2` fakes a Solfray room with a bot
   (the SDK's `Solfray.mock`; no token is minted in mock mode, so saving uses Google).
 * `npm test` runs the token-verification and map-validation tests on Node.
 * `npm run typecheck` typechecks the Worker.
 
 Saving on the standalone site needs Google sign-in (below). Playing never needs an account.
+
+### Base templates
+
+Start from one of these instead of stacking every floor block yourself. Each is a
+built-in map: `?map=<id>`, and the Templates tab in the Maps panel. **Start from this**
+(or B while you are playing one) makes a new unsaved map you can edit, then Save
+stores it under your verified Solfray or Google identity. The original stays shared
+and read-only. Panels are where a rift should stick, plates where it should not,
+acid is the death floor, and the exit pad is reachable in principle.
+
+| `?map=` | Name | What you start with |
+|---|---|---|
+| `arena` | Acid arena | Flat plate yard, acid pool in the middle, panel walls at each end |
+| `canyon` | Deep canyon | Two plate cliffs, deep acid gap, panel walls facing each cliff |
+| `high-canyon` | High canyon | Deep acid canyon, far cliff much higher, panel pad on the high floor |
+| `corner` | Corner | Plate L around a 90° acid corner, panel walls down each leg |
+| `u-turn` | U-turn | U-shaped plate detour around an acid channel, panel columns on the curb |
+| `pillars` | Pillar field | Plate pillars over an acid sea, panel wall on the far side of each top |
+| `terraces` | Terraces | Rising plate terraces across acid gaps, panel pads, plate-stair ramp |
+| `tower` | Central tower | Plate tower in an acid moat, panel pad on the roof, stairs up the back |
+| `corridor` | Pit corridor | Long plate corridor, side pits, two acid trenches with a narrow bridge |
 
 ### Controls
 
@@ -78,8 +104,9 @@ build-mode Controls panel, the hint bar and Help.
 **Playing** (survival-style): `WASD` move, `Space` jump, `Shift` sneak (slower, never off an
 edge), `Ctrl` or double-tap `W` sprint, mouse look (the first click captures the mouse,
 `Esc` frees it). Left click fires the blue rift, right click the orange one, `X` clears
-your rifts, `R` restarts, `B` enters build mode on your own maps, `M` opens the map
-browser, hold `Tab` for the player list, `H` help, `F1` hides the HUD.
+your rifts, `R` restarts, `B` enters build mode on your own maps (on a template, `B`
+is **Start from this**), `M` opens the map browser, hold `Tab` for the player list,
+`H` help, `F1` hides the HUD.
 
 **Building** (creative-style): double-tap `Space` to fly (`Space` up, `Shift` down, `Ctrl`
 fast). Right click places the selected block against the face you look at (a ghost shows
@@ -95,7 +122,8 @@ cursor and clicks act at the crosshair. The arrow keys also look around. On a to
 sneak), dragging looks, and Jump sits bottom right (double-tap it in build mode to fly;
 while flying a second button descends). Playing, tap for blue and press and hold for
 orange, or use the two rift buttons; building, tap places and press and hold breaks, with
-Place / Break / Shape buttons that repeat while held.
+Place / Break / Shape buttons that repeat while held. The top Build button is the
+same as `B`: **Start from this** while a template is loaded, Play while you are building.
 
 ### Blocks
 
@@ -116,6 +144,12 @@ underside of a block, or on the upper half of a side face, they hang upside down
 stair blocks in any voxel game. A stair cell stores its facing and flip in a `meta` value
 (`[x, y, z, type, meta]` in the map JSON; see `src/api/maps.ts`).
 
+Panels are cool light frames; plates are warm dark tread. Panel stairs wear a blue nosing,
+plate stairs an amber one. The button is a low pad, the exit a pad with a beacon, acid a
+sunken pool, the door a slab with a rail, and glass a framed pane. Each face is a generated
+16×16 tile shared by every copy of that block (the `texture` slot on `BLOCK_INFO`). The
+hotbar swatches are those same tiles, with the matching silhouette.
+
 **Rifts on slopes.** The rift's long axis runs along the climb and its normal points up
 and out of the slope, so walking up the run carries you through, and the matching exit
 preserves that momentum. Upside-down stairs do not take rifts.
@@ -128,8 +162,9 @@ on a 64x64 image the standard way, so a ready-made skin in that layout drops in 
 Sprites button (sprite injection, guide 6b): upload one or paint it from their pfp, and
 everyone else sees it live. `public/assets/skin-default.png` is the template they
 download; players without a skin get that figure painted in their Solfray colour. The portal gun is a handful of boxes with
-a core that glows in the colour of the last rift fired. Block materials carry a `texture`
-slot in `BLOCK_INFO` for the same reason: textures are a follow-up, not a redesign.
+a core that glows in the colour of the last rift fired. Block faces use the `texture`
+slot on `BLOCK_INFO`: a 16×16 tile painted at startup, nearest-filtered, one draw per
+block type. Swap the canvas in `makeTile` to restyle a block without touching the meshes.
 
 ---
 
@@ -252,7 +287,8 @@ public/solfray-playable.json
 public/js/app.js          boot, map choice, room state, result string, HUD
 public/js/net.js          SolfrayNet | RoomNet behind one interface
 public/js/api.js          fetch + playable token caching
-public/js/world.js        voxel map, instanced meshes, starter map
+public/js/templates.js    base map templates (arena, canyons, corner, and the rest)
+public/js/world.js        voxel map, instanced meshes, starter, example, and templates
 public/js/player.js       first-person controller + grid collision
 public/js/rifts.js        rift placement, render-to-texture views, teleport
 public/js/avatars.js      remote players from interpolated poses
@@ -267,7 +303,8 @@ test/                     vitest (Node): tokens, map validation
 * 50 players per room (manifest `players.max`, `RoomDO` cap). Inside Solfray the relay's
   own budgets apply (Solfray.LIMITS); poses stream at 15 Hz per player either way.
 * Maps: up to 64³ cells, 20,000 blocks, 256 KB JSON. Nine block types; stairs carry a
-  3-bit orientation.
+  3-bit orientation. The base templates in `public/js/templates.js` stay inside those
+  limits; `test/templates.test.ts` checks every one.
 * The render-through view is drawn for **your own** rift pair only (two extra renders per
   frame); other players' rifts show a swirl. Doors open from the poses every page sees,
   so they need no host.
