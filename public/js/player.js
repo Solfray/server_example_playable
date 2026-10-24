@@ -1,8 +1,9 @@
 // player.js: the local first-person controller and its grid collision.
 //
 // Controls follow the conventions of block-building games so nobody has to
-// learn anything: WASD, Space jumps, Shift sneaks, Ctrl sprints, and in build
-// mode a double tap on Space toggles flight (Space up, Shift down). Numbers
+// learn anything: WASD, Space jumps, Shift sneaks, Ctrl (or a double tap on
+// W) sprints, and in build mode a double tap on Space toggles flight (Space
+// up, Shift down). Numbers
 // are the usual ones for a 1.8-tall, 0.6-wide player: eye at 1.62 (1.27 when
 // sneaking), walk 4.3 m/s, sprint 5.6, sneak 1.3, jump a little over one
 // block, and a 0.6 step-up so stairs and slabs are walked, not jumped.
@@ -45,6 +46,8 @@ export class Player {
     this.sprinting = false;
     this.keys = new Set();
     this.lastSpaceTap = -1;
+    this.lastWTap = -1;
+    this.sprintLatch = false; // set by a double tap on W, cleared when W is let go
     this.lastTeleport = 0;
   }
 
@@ -99,11 +102,18 @@ export class Player {
 
   clearKeys() {
     this.keys.clear();
+    this.sprintLatch = false;
   }
 
-  /** Key press hook for things that are edges, not levels: the double-tap
-   *  on Space that toggles flight in build mode. Call from keydown. */
+  /** Key press hook for things that are edges, not levels: a double tap on
+   *  W sprints, and in build mode a double tap on Space toggles flight.
+   *  Call from keydown (and from the touch D-pad and jump button). */
   keyPressed(code, timeMs) {
+    if (code === "KeyW") {
+      if (timeMs - this.lastWTap < 300) this.sprintLatch = true;
+      this.lastWTap = timeMs;
+      return;
+    }
     if (code !== "Space" || this.mode !== "creative") return;
     if (timeMs - this.lastSpaceTap < 300) {
       this.flying = !this.flying;
@@ -123,7 +133,8 @@ export class Player {
     const wishX = (sy * fwd - cy * str) / len;
     const wishZ = (cy * fwd + sy * str) / len;
     const shift = k.has("ShiftLeft") || k.has("ShiftRight");
-    const ctrl = k.has("ControlLeft") || k.has("ControlRight");
+    if (!k.has("KeyW")) this.sprintLatch = false;
+    const ctrl = k.has("ControlLeft") || k.has("ControlRight") || this.sprintLatch;
 
     if (this.flying) {
       this.sneaking = false;

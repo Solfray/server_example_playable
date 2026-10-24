@@ -72,16 +72,30 @@ Saving on the standalone site needs Google sign-in (below). Playing never needs 
 
 ### Controls
 
+Every control is listed in one table (`CONTROLS` in `public/js/app.js`), which feeds the
+build-mode Controls panel, the hint bar and Help.
+
 **Playing** (survival-style): `WASD` move, `Space` jump, `Shift` sneak (slower, never off an
-edge), `Ctrl` sprint, mouse look. Left click fires the blue rift, right click the orange
-one, `X` clears your rifts, `R` restarts, `B` enters build mode on your own maps, `M` opens
-the map browser.
+edge), `Ctrl` or double-tap `W` sprint, mouse look (the first click captures the mouse,
+`Esc` frees it). Left click fires the blue rift, right click the orange one, `X` clears
+your rifts, `R` restarts, `B` enters build mode on your own maps, `M` opens the map
+browser, hold `Tab` for the player list, `H` help, `F1` hides the HUD.
 
 **Building** (creative-style): double-tap `Space` to fly (`Space` up, `Shift` down, `Ctrl`
-fast). Right click places the selected block against the face you look at, left click
-breaks, middle click picks the block you look at. `1`–`9` and the mouse wheel choose from
-the hotbar, which holds every block type (no inventory screen); `0` is the spawn tool
-(right click a block to spawn on top of it). Reach is five blocks.
+fast). Right click places the selected block against the face you look at (a ghost shows
+where), left click breaks, middle click picks the block you look at; hold either button to
+keep placing or breaking. `F` / `Shift+F` cycles the shape (single, 3x3 floor, two 3x3
+walls, 6-tall pillar). `1`–`9` and the mouse wheel choose from the hotbar, which holds every
+block type (no inventory screen); `0` is the spawn tool (right click a block to spawn on
+top of it). Reach is five blocks.
+
+**No mouse.** Where the pointer can't be captured (an iPad trackpad), the view follows the
+cursor and clicks act at the crosshair. The arrow keys also look around. On a touchscreen
+(`public/js/touch.js`) a D-pad moves (double-tap up to sprint, centre button toggles
+sneak), dragging looks, and Jump sits bottom right (double-tap it in build mode to fly;
+while flying a second button descends). Playing, tap for blue and press and hold for
+orange, or use the two rift buttons; building, tap places and press and hold breaks, with
+Place / Break / Shape buttons that repeat while held.
 
 ### Blocks
 
@@ -244,6 +258,7 @@ public/js/rifts.js        rift placement, render-to-texture views, teleport
 public/js/avatars.js      remote players from interpolated poses
 public/js/model.js        blocky character (64x64 skin UVs), portal gun, held block
 public/js/editor.js       build mode: creative controls and the hotbar
+public/js/touch.js        on-screen D-pad and buttons for touch-only players
 test/                     vitest (Node): tokens, map validation
 ```
 
