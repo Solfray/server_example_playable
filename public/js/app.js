@@ -19,11 +19,12 @@ import { Avatars } from "./avatars.js";
 import { Editor } from "./editor.js";
 import { SolfrayNet, RoomNet, colorOf } from "./net.js";
 import { Api } from "./api.js";
+import { TouchControls } from "./touch.js";
 
 // SOLFRAY TIE-IN (guide 7c): the same string as "version" in
 // /solfray-playable.json. Solfray compares the two and tells a player on a
 // stale build to reload. Bump both on every deploy.
-const VERSION = "1.5.0";
+const VERSION = "1.6.0";
 // Schema of the shared room state. Bump when its shape changes; a room whose
 // state carries an older schema starts fresh (guide 7c, step 3).
 const STATE_SCHEMA = 1;
@@ -438,101 +439,115 @@ async function save(form) {
 
 function setupInput() {
   const canvas = $("game");
-  // Pointer lock is the desktop way to look around, but iPads (and frames
-  // that don't allow it) often can't lock. So the view also turns by
-  // dragging (finger, pen, or a held mouse / trackpad button), by a
-  // two-finger trackpad swipe, and by the arrow keys; and when the lock
-  // fails, a tap or click acts at the crosshair instead.
+
+  // ---- Mouse: click to capture, then the mouse looks around ----------------
+  // As in desktop block games, the first click only captures the pointer
+  // (pointer lock); after that moving the mouse turns the view and the
+  // buttons act. The lock is requested on mouse *down*, the event browsers
+  // reliably accept it from. Where locking can't work (an iPad trackpad, a
+  // browser that refuses), the view follows the free cursor instead and
+  // clicks act at the crosshair: nobody has to hold a button to look.
+  let lockFails = 0;
+  const lockFailed = () => {
+    lockFails++;
+    // One failure can be a browser's cool-down right after Escape; two in a
+    // row means locking doesn't work here.
+    if (lockFails >= 2 || !canvas.requestPointerLock) app.noLock = true;
+  };
   const requestLock = () => {
-    if (!canvas.requestPointerLock) {
-      app.noLock = true;
-      return;
-    }
+    if (!canvas.requestPointerLock) return lockFailed();
     try {
       const p = canvas.requestPointerLock();
-      if (p && p.catch) p.catch(() => (app.noLock = true));
+      if (p && p.catch) p.catch(() => {}); // pointerlockerror counts it
     } catch {
-      app.noLock = true;
+      lockFailed();
     }
-    // Some browsers ignore the request without an error.
-    setTimeout(() => {
-      if (!app.locked) app.noLock = true;
-    }, 600);
   };
-  document.addEventListener("pointerlockerror", () => (app.noLock = true));
+  document.addEventListener("pointerlockerror", lockFailed);
+  document.addEventListener("pointerlockchange", () => {
+    app.locked = document.pointerLockElement === canvas;
+    if (app.locked) {
+      lockFails = 0;
+      app.noLock = false;
+    }
+    releaseAll();
+    document.body.classList.toggle("locked", app.locked);
+  });
+  document.addEventListener("mousemove", (e) => {
+    if (app.locked || (app.noLock && !overlayOpen() && e.target === canvas)) app.player.look(e.movementX || 0, e.movementY || 0);
+  });
+  canvas.addEventListener("mousedown", (e) => {
+    if (overlayOpen()) return;
+    if (e.button === 1) e.preventDefault();
+    if (app.locked) return act(e.button, true);
+    // Not captured yet: capture. Where capture is known not to work, act now.
+    if (app.noLock) act(e.button, true);
+    requestLock();
+  });
+  document.addEventListener("mouseup", (e) => {
+    if (e.button === 0) app.breakHeld = false;
+    if (e.button === 2) app.placeHeld = false;
+  });
+  canvas.addEventListener("contextmenu", (e) => e.preventDefault());
+  canvas.addEventListener("auxclick", (e) => e.preventDefault());
+  canvas.addEventListener("wheel", (e) => {
+    if (app.editor.active && e.deltaY) {
+      app.editor.cycle(e.deltaY > 0 ? 1 : -1);
+      hotbar();
+    }
+  }, { passive: true });
 
-  let drag = null; // the one pointer currently turning the view
+  // ---- Touch and pen: drag to look, tap to act ------------------------------
+  // (The D-pad and buttons are in touch.js.) Playing, a tap fires blue and a
+  // long press orange; building, a tap places and a long press breaks, as in
+  // touch versions of block games.
+  app.touch = new TouchControls($("hud"), app.player, {
+    act,
+    release: () => (app.placeHeld = app.breakHeld = false),
+    shape: () => {
+      app.editor.cycleShape(1);
+      hotbar();
+    },
+    restart: () => app.player.respawn(app.world),
+    clearRifts,
+    building: () => app.editor.active,
+    flying: () => app.player.flying,
+  });
+  if (window.matchMedia && matchMedia("(pointer: coarse)").matches) app.touch.enable();
+  if (window.innerHeight < 600) $("legend").open = false; // small screens: start folded
+  let drag = null; // the one finger currently turning the view
   canvas.addEventListener("pointerdown", (e) => {
-    if (app.locked || overlayOpen() || drag) return;
-    drag = { id: e.pointerId, x: e.clientX, y: e.clientY, moved: 0, t: performance.now(), button: e.button, touch: e.pointerType !== "mouse" };
+    if (e.pointerType === "mouse" || overlayOpen() || drag) return;
+    app.touch.enable();
+    hud();
+    drag = { id: e.pointerId, x: e.clientX, y: e.clientY, moved: 0, t: performance.now() };
     try {
       canvas.setPointerCapture(e.pointerId);
     } catch {}
   });
   canvas.addEventListener("pointermove", (e) => {
-    if (!drag || e.pointerId !== drag.id || app.locked) return;
+    if (!drag || e.pointerId !== drag.id) return;
     const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
     drag.x = e.clientX;
     drag.y = e.clientY;
     drag.moved += Math.abs(dx) + Math.abs(dy);
     // A finger turns a little faster than a mouse, so a thumb-width swipe
     // is a useful turn on a small screen.
-    const k = drag.touch ? 1.6 : 1;
-    app.player.look(dx * k, dy * k);
+    app.player.look(dx * 1.6, dy * 1.6);
   });
   const endDrag = (e) => {
     if (!drag || e.pointerId !== drag.id) return;
     const d = drag;
     drag = null;
-    if (e.type === "pointercancel" || d.moved > 10 || overlayOpen()) return; // that was a look, not a tap
-    const long = performance.now() - d.t > 450;
-    if (d.touch) {
-      // Touch, as in mobile block games: playing, tap fires blue and a long
-      // press orange; building, tap places and a long press breaks.
-      if (app.editor.active) act(long ? 0 : 2);
-      else act(long ? 2 : 0);
-      return;
-    }
-    // Mouse or trackpad: a click captures the pointer; where that can't
-    // work (an iPad, say) the click acts at the crosshair as well.
-    if (app.noLock) act(d.button);
-    requestLock();
+    if (e.type === "pointercancel" || d.moved > 12 || overlayOpen()) return; // a look, not a tap
+    const long = performance.now() - d.t > 400;
+    if (app.editor.active) act(long ? 0 : 2);
+    else act(long ? 2 : 0);
   };
   canvas.addEventListener("pointerup", endDrag);
   canvas.addEventListener("pointercancel", endDrag);
 
-  document.addEventListener("pointerlockchange", () => {
-    app.locked = document.pointerLockElement === canvas;
-    if (app.locked) app.noLock = false;
-    app.player.clearKeys();
-    app.placeHeld = false;
-    document.body.classList.toggle("locked", app.locked);
-  });
-  document.addEventListener("mousemove", (e) => {
-    if (app.locked) app.player.look(e.movementX, e.movementY);
-  });
-  canvas.addEventListener("contextmenu", (e) => e.preventDefault());
-  canvas.addEventListener("mousedown", (e) => {
-    if (!app.locked) return;
-    if (e.button === 1) e.preventDefault();
-    act(e.button, true);
-  });
-  document.addEventListener("mouseup", (e) => {
-    if (e.button === 2) app.placeHeld = false;
-  });
-  canvas.addEventListener("auxclick", (e) => e.preventDefault());
-  canvas.addEventListener("wheel", (e) => {
-    if (!app.locked) {
-      // Unlocked (an iPad trackpad, say): a two-finger swipe looks around.
-      const k = e.deltaMode === 1 ? 16 : 1;
-      app.player.look(e.deltaX * k * 0.6, e.deltaY * k * 0.6);
-      return;
-    }
-    if (app.editor.active) {
-      app.editor.cycle(e.deltaY > 0 ? 1 : -1);
-      hotbar();
-    }
-  }, { passive: true });
+  // ---- Keyboard ---------------------------------------------------------------
   document.addEventListener("keydown", (e) => {
     if (overlayOpen()) {
       if (e.code === "Escape") closeOverlay();
@@ -546,17 +561,19 @@ function setupInput() {
         app.player.respawn(app.world);
         break;
       case "KeyX":
-        if (app.net) app.net.event({ k: "clear" });
-        else app.rifts.removeAll(myPk());
+        clearRifts();
         break;
       case "KeyB":
-      case "Tab":
-        e.preventDefault();
         toggleBuild();
+        break;
+      case "Tab":
+        // Hold for the player list, as in block games.
+        e.preventDefault();
+        showPlayerList(true);
         break;
       case "KeyF":
         if (app.editor.active) {
-          app.editor.cycleShape(1);
+          app.editor.cycleShape(e.shiftKey ? -1 : 1);
           hotbar();
         }
         break;
@@ -564,9 +581,12 @@ function setupInput() {
         openBrowser();
         break;
       case "KeyH":
-      case "F1":
-        e.preventDefault();
         openHelp();
+        break;
+      case "F1":
+        // Hide the HUD (and the hand), as in block games.
+        e.preventDefault();
+        document.body.classList.toggle("nohud");
         break;
       case "KeyY":
         if (app.pendingSuggest) {
@@ -583,20 +603,58 @@ function setupInput() {
     }
     if (e.code === "Space" || e.code.startsWith("Arrow")) e.preventDefault();
   });
-  document.addEventListener("keyup", (e) => app.player.keys.delete(e.code));
-  window.addEventListener("blur", () => {
-    app.player.clearKeys();
-    app.placeHeld = false;
+  document.addEventListener("keyup", (e) => {
+    app.player.keys.delete(e.code);
+    if (e.code === "Tab") showPlayerList(false);
   });
+
+  // SOLFRAY TIE-IN (guide section 10): when the frame loses focus, the tab is
+  // hidden or pointer lock ends, the SDK fires solfray:inputreset; keyups
+  // that happened meanwhile never arrive, so let go of everything.
+  window.addEventListener("solfray:inputreset", releaseAll);
+  window.addEventListener("blur", releaseAll);
 }
 
-/** A mouse button (0 left, 1 middle, 2 right) or the tap that stands in for
- *  one, aimed at the crosshair. `held` is true for a real button that will
- *  send a mouseup, so right click can keep placing while held. */
+/** Let go of every held key and button. */
+function releaseAll() {
+  app.player.clearKeys();
+  app.placeHeld = app.breakHeld = false;
+  if (app.touch) app.touch.releaseAll();
+  showPlayerList(false);
+}
+
+function clearRifts() {
+  if (app.net) app.net.event({ k: "clear" });
+  else app.rifts.removeAll(myPk());
+}
+
+/** Tab (held): who is here, as in block games. */
+function showPlayerList(on) {
+  const el = $("playerlist");
+  if (!el) return;
+  if (!on) {
+    el.hidden = true;
+    return;
+  }
+  const ps = app.net ? app.net.participants : [{ pk: myPk(), display: "You", color: "#9aa0a6" }];
+  el.innerHTML = `<div class="pl-title">${ps.length} player${ps.length === 1 ? "" : "s"}</div>` +
+    ps.map((p) => `<div class="pl-row"><span class="dot" style="background:${esc(p.color || colorOf(p.pk))}"></span>${esc(p.display || short(p.pk))}${isMe(p.pk) ? " (you)" : ""}</div>`).join("");
+  el.hidden = false;
+}
+
+/** A mouse button (0 left, 1 middle, 2 right) or the tap or touch button
+ *  that stands in for one, aimed at the crosshair. `held` is true when a
+ *  release will follow, so holding keeps breaking or placing. */
 function act(button, held = false) {
   if (app.editor.active) {
     // Creative-mode mouse: left breaks, right places, middle picks.
-    if (button === 0 && app.editor.breakBlock()) app.dirty = true;
+    if (button === 0) {
+      if (held) {
+        app.breakHeld = true;
+        app.breakTimer = BREAK_REPEAT;
+      }
+      if (app.editor.breakBlock()) app.dirty = true;
+    }
     if (button === 2) {
       // Holding right click keeps placing, as in creative mode: walk
       // backward along an edge to lay a line of blocks.
@@ -657,6 +715,7 @@ function toggleBuild() {
 
 const tmpCenter = new THREE.Vector3(), tmpPrev = new THREE.Vector3();
 const PLACE_REPEAT = 0.2; // seconds between placements while right click is held
+const BREAK_REPEAT = 0.25; // and between breaks while left click is held
 
 function frame(t) {
   requestAnimationFrame(frame);
@@ -684,6 +743,7 @@ function simulate(dt) {
   const feet = [player.pos, ...app.avatars.positions()];
   world.setDoorsOpen(world.buttonsPressedBy(feet));
 
+  if (app.touch) app.touch.sync();
   if (!overlayOpen() || app.editor.active) {
     // Arrow keys look around, for keyboards without a mouse (an iPad).
     const k = player.keys, rate = 2.4 * dt; // radians per second
@@ -696,12 +756,24 @@ function simulate(dt) {
     world.passable = null;
     if (app.editor.active) {
       if (app.editor.rescueIfFallen()) toast("Fell off the build: back on the nearest block.");
-      if (app.placeHeld && app.locked) {
+      // Held buttons repeat, as in creative mode.
+      if (app.placeHeld) {
         app.placeTimer -= dt;
         if (app.placeTimer <= 0) {
           app.placeTimer += PLACE_REPEAT;
           app.editor.update(); // aim from where the step just moved us
           if (app.editor.placeBlock()) {
+            app.dirty = true;
+            hud();
+          }
+        }
+      }
+      if (app.breakHeld) {
+        app.breakTimer -= dt;
+        if (app.breakTimer <= 0) {
+          app.breakTimer += BREAK_REPEAT;
+          app.editor.update();
+          if (app.editor.breakBlock()) {
             app.dirty = true;
             hud();
           }
@@ -728,9 +800,10 @@ function simulate(dt) {
 
   // First-person viewmodels: the portal gun when playing, the selected
   // block when building.
-  app.gun.group.visible = !app.editor.active;
+  const hidden = document.body.classList.contains("nohud"); // F1
+  app.gun.group.visible = !app.editor.active && !hidden;
   app.gun.animate(dt);
-  if (app.editor.active) app.held.setBlock(app.editor.tool === "block" ? app.editor.info : null);
+  if (app.editor.active && !hidden) app.held.setBlock(app.editor.tool === "block" ? app.editor.info : null);
   else app.held.group.visible = false;
   app.held.animate(dt);
 }
@@ -858,6 +931,95 @@ function setupUi() {
   hud();
 }
 
+// ---------------------------------------------------------------------------
+// Controls: one table drives the build-mode Controls panel, the hint bar
+// and Help, so they never disagree. Keys follow desktop block games; the
+// touch column follows their touch editions.
+
+const CONTROLS = {
+  play: {
+    keys: [
+      ["W A S D", "Move"],
+      ["Mouse", "Look (click the game first; Esc frees the mouse)"],
+      ["Space", "Jump"],
+      ["Shift", "Sneak (never off an edge)"],
+      ["Ctrl / W W", "Sprint (or double-tap W)"],
+      ["Left click", "Blue rift"],
+      ["Right click", "Orange rift"],
+      ["X", "Clear your rifts"],
+      ["R", "Back to the start"],
+      ["B", "Build mode (Start from this on a template)"],
+      ["M", "Maps"],
+      ["Tab (hold)", "Players"],
+      ["H", "Help"],
+      ["F1", "Hide the HUD"],
+      ["Arrow keys", "Look (no mouse)"],
+    ],
+    touch: [
+      ["D-pad", "Move (double-tap ▲ to sprint)"],
+      ["Drag", "Look"],
+      ["Tap · blue ◉", "Blue rift"],
+      ["Hold · orange ◉", "Orange rift"],
+      ["⤒", "Jump"],
+      ["●", "Sneak on / off"],
+      ["↺", "Back to the start"],
+      ["✕", "Clear your rifts"],
+      ["Build (top) / B", "Build mode (Start from this on a template)"],
+    ],
+  },
+  build: {
+    keys: [
+      ["W A S D", "Move"],
+      ["Mouse", "Look (click the game first; Esc frees the mouse)"],
+      ["Space", "Jump · double-tap to fly"],
+      ["Space / Shift", "Fly up / down (land with Shift)"],
+      ["Shift", "Sneak (never off an edge)"],
+      ["Ctrl / W W", "Sprint, fly fast"],
+      ["Left click", "Break (hold to keep breaking)"],
+      ["Right click", "Place (hold to keep placing)"],
+      ["Middle click", "Pick the block you look at"],
+      ["1–9 / wheel", "Choose a block"],
+      ["0", "Spawn tool"],
+      ["F / Shift+F", "Next / previous shape"],
+      ["B", "Play mode"],
+      ["M", "Maps"],
+      ["Tab (hold)", "Players"],
+      ["H", "Help"],
+      ["F1", "Hide the HUD"],
+      ["Arrow keys", "Look (no mouse)"],
+    ],
+    touch: [
+      ["D-pad", "Move (double-tap ▲ to sprint)"],
+      ["Drag", "Look"],
+      ["Tap · ▣", "Place (hold ▣ to keep placing)"],
+      ["Hold · ⛏", "Break (hold ⛏ to keep breaking)"],
+      ["⤒", "Jump · double-tap to fly"],
+      ["⤒ / ▼", "Fly up / down"],
+      ["●", "Sneak on / off"],
+      ["Hotbar", "Choose a block"],
+      ["▦", "Next shape"],
+      ["Play (top) / B", "Play mode"],
+    ],
+  },
+};
+
+function controlsTable(rows) {
+  return `<table class="keys">${rows.map(([k, v]) => `<tr><td><kbd>${esc(k)}</kbd></td><td>${esc(v)}</td></tr>`).join("")}</table>`;
+}
+
+/** The build-mode Controls panel: every control for this device. */
+function legend() {
+  const el = $("legend");
+  const building = Boolean(app.editor && app.editor.active);
+  el.hidden = !building;
+  if (!building) return;
+  const touch = document.body.classList.contains("touch");
+  const key = touch ? "touch" : "keys";
+  if (el.dataset.kind === key) return;
+  el.dataset.kind = key;
+  el.querySelector(".body").innerHTML = controlsTable(CONTROLS.build[key]);
+}
+
 function hud() {
   const n = app.net ? app.net.participants.length : 1;
   $("who").textContent = whoLabel();
@@ -877,10 +1039,11 @@ function hud() {
   $("btn-save").textContent = owns || (app.map && !app.map.id) ? "Save" : "Save as…";
   $("hotbar-wrap").hidden = !(app.editor && app.editor.active);
   $("hint").textContent = app.editor && app.editor.active
-    ? "WASD · drag/arrows look · double-tap Space to fly (Space up, Shift down) · Ctrl fast · RMB place · LMB break · MMB pick · hold RMB to keep placing · F shape · wheel/1–9 block · 0 spawn tool · B play"
+    ? "Every control is in the Controls panel · H help · F1 hide HUD · B play"
     : onTemplate
-      ? "Template · B or Start from this makes a new map you can build on and save as yours · WASD · look · Space jump · LMB/RMB rifts · M maps"
-      : "WASD · drag/arrows look · Space jump · Shift sneak · Ctrl sprint · LMB blue rift · RMB orange rift · X clear rifts · R restart · B build · M maps";
+      ? "Template · B or Start from this makes a new map you can build on and save as yours · WASD · mouse look · Space jump · LMB/RMB rifts · M maps · Tab players · H help · F1 hide HUD"
+      : "WASD move · mouse look · Space jump · Shift sneak · Ctrl / double-tap W sprint · LMB blue rift · RMB orange rift · X clear · R restart · B build · M maps · Tab players · H help · F1 hide HUD";
+  legend();
 }
 
 function hotbar() {
@@ -1037,10 +1200,14 @@ function openSave() {
 function openHelp() {
   showOverlay(`<h2>Rift Builder</h2>
     <p>Place two linked rifts on <b>light panels</b> (left click blue, right click orange), walk through one and come out of the other with your speed intact. Reach the green exit pad. Dark plates and glass refuse rifts; acid sends you back; a floor button held down by any player opens every door, so bring friends. The <b>Example course</b> (Maps, or <b>?map=example</b>) is a short solo run through every block.</p>
-    <p><b>Templates</b> (Maps → Templates, or <b>?map=arena</b> and the other names listed there) are base terrains: an arena, canyons, a corner, a U-turn, pillars, terraces, a tower, a corridor. <b>Start from this</b> copies one into a new map and opens build mode. Save stores that copy under your account. Play leaves the shared original read-only.</p>
-    <p><b>Play</b>: WASD, Space jumps, Shift sneaks (slower, never off an edge), Ctrl sprints. Left click fires the blue rift, right click the orange one. Stairs are slopes: a rift aimed at a two-step run sits on the slope, and a rift aimed at a floor or wall needs two panels of room.</p>
-    <p><b>Build</b> (B): creative controls. Double-tap Space to fly (Space up, Shift down, Ctrl fast). Right click places the selected block against the face you look at (the ghost shows where), left click breaks, middle click picks. Hold right click to keep placing: walk backward off an edge while sneaking to lay a bridge. F cycles the shape: single block, 3×3 floor, 3×3 north–south wall, 3×3 east–west wall, 6-tall pillar (stairs always place singly). Fall far below the build and you land on the nearest block. Keys 1–9 and the wheel choose a block from the hotbar; 0 is the spawn tool (right click a block to spawn on it). Stairs face the way you look; placed under a block they hang upside down. Save as… stores the map on this server under your account; tick Public to list it.</p>
-    <p><b>No mouse?</b> (an iPad, a touchscreen) Drag on the game, swipe two fingers on a trackpad, or use the arrow keys to look around. Playing, tap for a blue rift and press and hold for an orange one; building, tap places and press and hold breaks.</p>
+    <p>Stairs are slopes: a rift aimed at a two-step run sits on the slope, and a rift aimed at a floor or wall needs two panels of room.</p>
+    <p><b>Templates</b> (Maps → Templates, or <b>?map=arena</b> and the other names listed there) are base terrains: an arena, canyons, a corner, a U-turn, pillars, terraces, a tower, a corridor. <b>Start from this</b> (or B while you are playing one) copies one into a new map and opens build mode. Save stores that copy under your account. Play leaves the shared original read-only.</p>
+    <p><b>Build</b> (B) works like creative mode in block games. The ghost shows where the next block goes. Hold right click and walk backward off an edge while sneaking to lay a bridge. F cycles the shape: single block, 3×3 floor, 3×3 north–south wall, 3×3 east–west wall, 6-tall pillar (stairs always place singly). The spawn tool (0) puts the spawn on the block you right click. Stairs face the way you look; placed under a block they hang upside down. Fall far below the build and you land on the nearest block. Double-tap Space to fly (Space up, Shift down, Ctrl fast). Save as… stores the map on this server under your account; tick Public to list it.</p>
+    <div class="cols">
+      <div><h3>Playing</h3>${controlsTable(CONTROLS.play.keys)}<h3>Touch</h3>${controlsTable(CONTROLS.play.touch)}</div>
+      <div><h3>Building</h3>${controlsTable(CONTROLS.build.keys)}<h3>Touch</h3>${controlsTable(CONTROLS.build.touch)}</div>
+    </div>
+    <p class="muted">No mouse capture (an iPad trackpad)? The view follows the cursor and clicks act at the crosshair; the arrow keys look around too. On a touchscreen, drag to look and use the buttons: tap for blue and hold for orange while playing; tap places and hold breaks while building.</p>
     <h3>Who you are</h3>
     <p>${identityNote()}</p>
     <h3>Multiplayer</h3>

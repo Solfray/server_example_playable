@@ -53,6 +53,49 @@ button.danger { border-color: var(--danger); color: var(--danger); }
 #hotbar .sw.spawn { background: #ffe066; clip-path: polygon(50% 0, 100% 100%, 0 100%); }
 #hotbar .key { position: absolute; left: 3px; top: 1px; font-size: 10px; color: #ddd; text-shadow: 0 1px 1px #000; }
 
+/* Build-mode Controls panel */
+#legend { position: absolute; left: 10px; top: 52px; max-width: 300px; max-height: calc(100vh - 200px); overflow: auto; background: var(--panel); border: 1px solid rgba(255,255,255,.1); border-radius: var(--radius); padding: 6px 10px; font-size: 12px; pointer-events: auto; }
+#legend summary { cursor: pointer; font-weight: 600; }
+table.keys { border-collapse: collapse; margin-top: 4px; }
+table.keys td { padding: 2px 6px 2px 0; vertical-align: top; }
+table.keys td:first-child { white-space: nowrap; }
+kbd { font: 11px/1.4 ui-monospace, SFMono-Regular, Consolas, monospace; background: rgba(255,255,255,.1); border: 1px solid rgba(255,255,255,.2); border-bottom-width: 2px; border-radius: 4px; padding: 0 5px; }
+.cols { display: flex; flex-wrap: wrap; gap: 8px 24px; }
+.cols > div { flex: 1 1 260px; }
+
+/* Tab: player list */
+#playerlist { position: absolute; top: 56px; left: 50%; transform: translateX(-50%); min-width: 220px; background: var(--panel); border: 1px solid rgba(255,255,255,.12); border-radius: var(--radius); padding: 8px 14px; }
+#playerlist .pl-title { font-weight: 600; margin-bottom: 4px; text-align: center; }
+#playerlist .pl-row { padding: 2px 0; white-space: nowrap; }
+#playerlist .dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 8px; }
+
+/* F1: hide the HUD */
+body.nohud #hud { display: none; }
+
+/* Touch controls (touch.js) */
+#touch { position: absolute; inset: 0; pointer-events: none; }
+#touch .dpad { position: absolute; left: max(16px, env(safe-area-inset-left)); bottom: 84px; width: 150px; height: 150px; pointer-events: auto; touch-action: none; user-select: none; -webkit-user-select: none; }
+#touch .arrow { position: absolute; width: 50px; height: 50px; display: flex; align-items: center; justify-content: center; font-size: 20px; color: rgba(255,255,255,.85); background: rgba(0,0,0,.35); border: 2px solid rgba(255,255,255,.3); border-radius: 8px; pointer-events: none; }
+#touch .arrow.up { left: 50px; top: 0; }
+#touch .arrow.down { left: 50px; bottom: 0; }
+#touch .arrow.left { left: 0; top: 50px; }
+#touch .arrow.right { right: 0; top: 50px; }
+#touch .dpad.w .up, #touch .dpad.s .down, #touch .dpad.a .left, #touch .dpad.d .right { background: rgba(255,255,255,.3); }
+#touch .tbtn { width: 60px; height: 60px; padding: 0; border-radius: 50%; font-size: 22px; line-height: 1; background: rgba(0,0,0,.35); border: 2px solid rgba(255,255,255,.35); color: #fff; touch-action: none; user-select: none; -webkit-user-select: none; }
+#touch .tbtn.on { background: rgba(255,255,255,.3); }
+#touch .tbtn.small { width: 46px; height: 46px; font-size: 18px; }
+#touch .tbtn.jump { width: 74px; height: 74px; font-size: 28px; }
+#touch .tbtn.blue { color: var(--accent); border-color: var(--accent); }
+#touch .tbtn.orange { color: var(--accent2); border-color: var(--accent2); }
+#touch .dpad .sneak { position: absolute; left: 52px; top: 52px; width: 46px; height: 46px; font-size: 16px; }
+#touch .tside { position: absolute; right: max(16px, env(safe-area-inset-right)); bottom: 84px; display: flex; flex-direction: column; gap: 10px; align-items: flex-end; pointer-events: auto; }
+#touch .trow { display: flex; gap: 10px; align-items: flex-end; }
+body.touch #hint { display: none; }
+body.touch #hotbar-wrap { bottom: 8px; }
+body.touch #hotbar .slot { width: 40px; height: 40px; }
+body.touch #legend { max-height: calc(100vh - 320px); min-height: 0; }
+@media (max-width: 640px) { #hotbar .slot { width: 34px; height: 34px; } #hotbar .sw { width: 20px; height: 20px; } }
+
 #toasts { position: absolute; right: 12px; bottom: 56px; display: flex; flex-direction: column; gap: 6px; align-items: flex-end; max-width: 60vw; }
 .toast { background: var(--panel); border: 1px solid rgba(255,255,255,.12); border-left: 3px solid var(--accent); padding: 8px 12px; border-radius: 8px; animation: in .2s ease-out; transition: opacity .4s, transform .4s; }
 .toast.out { opacity: 0; transform: translateX(20px); }
